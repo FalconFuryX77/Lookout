@@ -12,7 +12,15 @@ You need Node.js 20 or newer. There are no dependencies to install.
 npm start        # or: node server.mjs
 ```
 
-Open <http://127.0.0.1:4173>. Keep the computer awake: scanning only happens while the server runs. The existing `StartupSignal.exe` tray app and its sign-in shortcut still work, because they launch `server.mjs` on the same port.
+Open <http://127.0.0.1:4173>. Keep the computer awake: scanning only happens while the server runs.
+
+### Windows app
+
+`Lookout.exe` is a native window with a notification-area icon. It starts the scanner for you, and closing the window keeps scanning in the tray (use **Exit Lookout** in the tray menu to stop).
+
+- Build it: `.\build-desktop.ps1` (uses `desktop\Lookout.cs`, the WebView2 SDK in `webview2-sdk`, and `desktop\lookout.ico`)
+- Desktop + sign-in shortcuts: `.\setup-desktop.ps1` (`-Uninstall` removes them; it also removes old "Startup Signal" shortcuts)
+- Regenerate the icon from the logo design: `.\desktop\make-icon.ps1`
 
 ## How it gets jobs early
 

@@ -13,15 +13,15 @@ foreach ($file in @('Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.Wi
 $loader = Join-Path $root 'WebView2Loader.dll'
 if (-not (Test-Path $loader)) { Copy-Item -LiteralPath (Join-Path $native 'WebView2Loader.dll') -Destination $loader -Force }
 $arguments = @(
-    '/nologo', '/target:winexe', '/optimize+', "/out:$(Join-Path $root 'StartupSignal.exe')",
+    '/nologo', '/target:winexe', '/optimize+', "/out:$(Join-Path $root 'Lookout.exe')", "/win32icon:$(Join-Path $root 'desktop\lookout.ico')",
     "/reference:$(Join-Path $framework 'System.dll')",
     "/reference:$(Join-Path $framework 'System.Core.dll')",
     "/reference:$(Join-Path $framework 'System.Drawing.dll')",
     "/reference:$(Join-Path $framework 'System.Windows.Forms.dll')",
     "/reference:$(Join-Path $lib 'Microsoft.Web.WebView2.Core.dll')",
     "/reference:$(Join-Path $lib 'Microsoft.Web.WebView2.WinForms.dll')",
-    (Join-Path $root 'desktop\StartupSignal.cs')
+    (Join-Path $root 'desktop\Lookout.cs')
 )
 & $compiler $arguments
-if ($LASTEXITCODE -ne 0) { throw "Startup Signal native desktop build failed with exit code $LASTEXITCODE." }
-Write-Host 'Built StartupSignal.exe with the Microsoft WebView2 WinForms SDK.'
+if ($LASTEXITCODE -ne 0) { throw "Lookout desktop build failed with exit code $LASTEXITCODE." }
+Write-Host 'Built Lookout.exe with the Microsoft WebView2 WinForms SDK.'

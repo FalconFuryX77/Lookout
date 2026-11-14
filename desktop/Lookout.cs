@@ -8,7 +8,7 @@ using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
-namespace StartupSignal
+namespace Lookout
 {
     internal static class Program
     {
@@ -20,19 +20,26 @@ namespace StartupSignal
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 bool startHidden = Array.Exists(Environment.GetCommandLineArgs(), arg => String.Equals(arg, "--background", StringComparison.OrdinalIgnoreCase));
-                Application.Run(new SignalContext(startHidden));
+                Application.Run(new LookoutContext(startHidden));
             }
             catch (Exception ex)
             {
-                try { File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "startup-signal-error.log"), ex.ToString() + Environment.NewLine); }
+                try { File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "lookout-error.log"), ex.ToString() + Environment.NewLine); }
                 catch { }
-                MessageBox.Show(ex.ToString(), "Startup Signal error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(ex.ToString(), "Lookout error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
     }
 
-    internal sealed class SignalContext : ApplicationContext
+    internal sealed class LookoutContext : ApplicationContext
     {
+        // The exe carries lookout.ico (built with /win32icon); reuse it for the window and the tray.
+        private static readonly Icon AppIcon = LoadIcon();
+        private static Icon LoadIcon()
+        {
+            try { return Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application; }
+            catch { return SystemIcons.Application; }
+        }
         private const string AppUrl = "http://127.0.0.1:4173/";
         private readonly string _appDir;
         private readonly Form _form;
@@ -41,18 +48,18 @@ namespace StartupSignal
         private Process _server;
         private bool _exiting;
 
-        public SignalContext(bool startHidden)
+        public LookoutContext(bool startHidden)
         {
             _appDir = AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
             _form = new Form
             {
-                Text = "Startup Signal",
-                Icon = SystemIcons.Application,
+                Text = "Lookout",
+                Icon = AppIcon,
                 StartPosition = FormStartPosition.CenterScreen,
                 Width = 1420,
                 Height = 920,
                 MinimumSize = new Size(720, 620),
-                BackColor = Color.FromArgb(16, 26, 25),
+                BackColor = Color.FromArgb(9, 9, 11),
                 ShowInTaskbar = !startHidden
             };
             _browser = new WebView2 { Dock = DockStyle.Fill };
@@ -62,14 +69,14 @@ namespace StartupSignal
             MainForm = _form;
 
             var menu = new ContextMenuStrip();
-            menu.Items.Add("Open Startup Signal", null, (sender, args) => ShowWindow());
+            menu.Items.Add("Open Lookout", null, (sender, args) => ShowWindow());
             menu.Items.Add("Scan now", null, (sender, args) => ScanNow());
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Exit Startup Signal", null, (sender, args) => ExitApp());
+            menu.Items.Add("Exit Lookout", null, (sender, args) => ExitApp());
             _tray = new NotifyIcon
             {
-                Icon = SystemIcons.Application,
-                Text = "Startup Signal is scanning in the background",
+                Icon = AppIcon,
+                Text = "Lookout is scanning in the background",
                 ContextMenuStrip = menu,
                 Visible = true
             };
@@ -88,7 +95,7 @@ namespace StartupSignal
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Startup Signal could not start the scanner.\r\n\r\n" + ex.Message, "Startup Signal", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Lookout could not start the scanner.\r\n\r\n" + ex.Message, "Lookout", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 ExitApp();
             }
         }
@@ -116,14 +123,14 @@ namespace StartupSignal
             if (_server.HasExited)
             {
                 string details = String.Empty;
-                try { details = File.ReadAllText(Path.Combine(_appDir, "startup-signal-desktop.log")); }
+                try { details = File.ReadAllText(Path.Combine(_appDir, "lookout-desktop.log")); }
                 catch { }
                 if (details.IndexOf("EADDRINUSE", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     _server = null;
                     return;
                 }
-                throw new InvalidOperationException("The scanner stopped during startup. See startup-signal-desktop.log for details.");
+                throw new InvalidOperationException("The scanner stopped during startup. See lookout-desktop.log for details.");
             }
         }
 
@@ -139,7 +146,7 @@ namespace StartupSignal
                 try { string candidate = Path.Combine(folder.Trim(), "node.exe"); if (File.Exists(candidate)) return candidate; }
                 catch { }
             }
-            throw new FileNotFoundException("Node.js 20 or newer was not found. Install Node.js and reopen Startup Signal.");
+            throw new FileNotFoundException("Node.js 20 or newer was not found. Install Node.js and reopen Lookout.");
         }
 
         private void OnFormClosing(object sender, FormClosingEventArgs e)
@@ -147,7 +154,7 @@ namespace StartupSignal
             if (_exiting) return;
             e.Cancel = true;
             _form.Hide();
-            _tray.ShowBalloonTip(2500, "Startup Signal is still running", "The scanner is in the notification area. Click its icon to reopen the dashboard.", ToolTipIcon.Info);
+            _tray.ShowBalloonTip(2500, "Lookout is still running", "The scanner is in the notification area. Click its icon to reopen the dashboard.", ToolTipIcon.Info);
         }
 
         private void ShowWindow()
@@ -187,7 +194,7 @@ namespace StartupSignal
 
         private void Log(string text)
         {
-            try { File.AppendAllText(Path.Combine(_appDir, "startup-signal-desktop.log"), DateTime.Now.ToString("s") + " " + text + Environment.NewLine); }
+            try { File.AppendAllText(Path.Combine(_appDir, "lookout-desktop.log"), DateTime.Now.ToString("s") + " " + text + Environment.NewLine); }
             catch { }
         }
     }

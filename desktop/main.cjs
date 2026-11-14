@@ -5,7 +5,7 @@ const { pathToFileURL } = require('node:url');
 
 const APP_URL = 'http://127.0.0.1:4173/';
 const APP_DIR = app.getAppPath();
-const LOG_FILE = path.join(APP_DIR, 'startup-signal-desktop.log');
+const LOG_FILE = path.join(APP_DIR, 'lookout-desktop.log');
 let mainWindow = null;
 let tray = null;
 let isQuitting = false;
@@ -25,8 +25,8 @@ function makeWindow() {
     minWidth: 720,
     minHeight: 620,
     show: false,
-    backgroundColor: '#101a19',
-    title: 'Startup Signal',
+    backgroundColor: '#09090b',
+    title: 'Lookout',
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
@@ -42,7 +42,7 @@ function makeWindow() {
       event.preventDefault();
       mainWindow.hide();
       if (Notification.isSupported()) {
-        new Notification({ title: 'Startup Signal is still running', body: 'The scanner is in the notification area. Click its icon to reopen the dashboard.' }).show();
+        new Notification({ title: 'Lookout is still running', body: 'The scanner is in the notification area. Click its icon to reopen the dashboard.' }).show();
       }
     }
   });
@@ -60,15 +60,15 @@ function buildTray() {
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><rect x="1" y="1" width="30" height="30" rx="9" fill="#a8f0c4"/><path d="M16 6 8 14h5v11h6V14h5z" fill="#102019"/></svg>';
   const image = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`);
   tray = new Tray(image);
-  tray.setToolTip('Startup Signal is scanning in the background');
+  tray.setToolTip('Lookout is scanning in the background');
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Open Startup Signal', click: showWindow },
+    { label: 'Open Lookout', click: showWindow },
     { label: 'Scan now', click: async () => {
       try { await fetch('http://127.0.0.1:4173/api/scan', { method: 'POST' }); }
       catch (error) { if (Notification.isSupported()) new Notification({ title: 'Scan could not start', body: error.message }).show(); }
     } },
     { type: 'separator' },
-    { label: 'Exit Startup Signal', click: () => { isQuitting = true; app.quit(); } }
+    { label: 'Exit Lookout', click: () => { isQuitting = true; app.quit(); } }
   ]));
   tray.on('click', showWindow);
   tray.on('double-click', showWindow);
@@ -83,7 +83,7 @@ app.whenReady().then(async () => {
     log('scanner server loaded');
   } catch (error) {
     log('scanner server failed:', error);
-    if (Notification.isSupported()) new Notification({ title: 'Startup Signal could not start', body: error.message }).show();
+    if (Notification.isSupported()) new Notification({ title: 'Lookout could not start', body: error.message }).show();
     app.quit();
     return;
   }
@@ -91,7 +91,7 @@ app.whenReady().then(async () => {
   makeWindow();
 
   if (process.platform === 'win32') {
-    app.setLoginItemSettings({ openAtLogin: true, path: process.execPath, args: [APP_DIR], name: 'Startup Signal' });
+    app.setLoginItemSettings({ openAtLogin: true, path: process.execPath, args: [APP_DIR], name: 'Lookout' });
   }
 });
 
