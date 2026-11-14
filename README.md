@@ -18,7 +18,7 @@ Open <http://127.0.0.1:4173>. Keep the computer awake: scanning only happens whi
 
 `Lookout.exe` is a native window with a notification-area icon. It starts the scanner for you, and closing the window keeps scanning in the tray (use **Exit Lookout** in the tray menu to stop).
 
-- Build it: `.\build-desktop.ps1` (uses `desktop\Lookout.cs`, the WebView2 SDK in `webview2-sdk`, and `desktop\lookout.ico`)
+- Build it: `.\build-desktop.ps1` (compiles `desktop\Lookout.cs` against the three WebView2 DLLs next to `Lookout.exe`, with `desktop\lookout.ico` as the icon)
 - Desktop + sign-in shortcuts: `.\setup-desktop.ps1` (`-Uninstall` removes them; it also removes old "Startup Signal" shortcuts)
 - Regenerate the icon from the logo design: `.\desktop\make-icon.ps1`
 
