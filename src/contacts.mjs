@@ -5,7 +5,7 @@
 import { getText, htmlToText, domainOf, decodeEntities, pool } from './util.mjs';
 import { extractEmails } from './enrich.mjs';
 
-export const NOT_COMPANY_SITES = /(greenhouse\.io|lever\.co|ashbyhq\.com|workable\.com|smartrecruiters\.com|recruitee\.com|bamboohr\.com|breezy\.hr|jobvite\.com|myworkdayjobs\.com|workday\.com|icims\.com|ycombinator\.com|workatastartup\.com|startup\.jobs|linkedin\.com|indeed\.|glassdoor\.|wellfound\.com|angel\.co|internshala\.com|naukri\.com|instahyre\.com|cutshort\.io|github\.com|githubusercontent\.com|notion\.site|notion\.so|google\.com|forms\.gle|typeform\.com|remoteok\.com|remotive\.com|weworkremotely\.com|arbeitnow\.com|himalayas\.app|jobicy\.com|news\.ycombinator\.com|simplify\.jobs|jobright\.ai|internscan|vercel\.app|twitter\.com|x\.com|medium\.com|substack\.com|rippling\.com|dover\.com|teamtailor\.com|personio\.|join\.com|keka\.com|zohorecruit|freshteam)/i;
+export const NOT_COMPANY_SITES = /(applytojob.com|jazzhr|taleo.net|successfactors|oraclecloud.com|paylocity|adp.com|ultipro|ukg|eightfold.ai|phenompeople|avature|pinpointhq|gem.com|comeet|hiringthing|catsone|gusto.com|jobvite|workforcenow|careers-page.com|ycombinator.com|greenhouse\.io|lever\.co|ashbyhq\.com|workable\.com|smartrecruiters\.com|recruitee\.com|bamboohr\.com|breezy\.hr|jobvite\.com|myworkdayjobs\.com|workday\.com|icims\.com|ycombinator\.com|workatastartup\.com|startup\.jobs|linkedin\.com|indeed\.|glassdoor\.|wellfound\.com|angel\.co|internshala\.com|naukri\.com|instahyre\.com|cutshort\.io|github\.com|githubusercontent\.com|notion\.site|notion\.so|google\.com|forms\.gle|typeform\.com|remoteok|remotive|weworkremotely|arbeitnow|himalayas|jobicy|lensa|jooble|adzuna|ziprecruiter|monster|careerbuilder|news\.ycombinator\.com|simplify\.jobs|jobright\.ai|internscan|vercel\.app|twitter\.com|x\.com|medium\.com|substack\.com|rippling\.com|dover\.com|teamtailor\.com|personio\.|join\.com|keka\.com|zohorecruit|freshteam)/i;
 
 const PATHS = ['', '/contact', '/contact-us', '/about', '/about-us', '/team', '/company', '/careers', '/jobs', '/.well-known/security.txt'];
 const SOCIAL = [
@@ -14,6 +14,7 @@ const SOCIAL = [
   ['github', /https?:\/\/(?:www\.)?github\.com\/(?!features|about|pricing|login|sponsors|orgs\/|topics)[A-Za-z0-9-]{2,39}(?=["'/?#\s])/i],
   ['instagram', /https?:\/\/(?:www\.)?instagram\.com\/[A-Za-z0-9_.]{2,30}(?=["'/?#\s])/i],
 ];
+const NOT_A_PERSON = /^(security|vulnerabilit|vuln|abuse|privacy|legal|press|media|pr|noreply|no-reply|donotreply|do-not-reply|dmca|gdpr|dpo|dataprotection|compliance|accessibility|investors?|ir|billing|invoices?|accounts?|payments?|ap|ar|webmaster|postmaster|hostmaster|unsubscribe|bounce|notifications?|alerts?|status|trust|safety|copyright|report|spam|fraud|disclosure|bugbounty|bug-bounty|psirt|cert|soc|incident)\b/;
 const ROLE_HINT = [[/^(jobs|careers|hiring|recruit|talent|hr|people|join)/, 'Hiring'], [/^(founders?|ceo|cto|hello|hi|hey)$/, 'Founders / general'], [/^(contact|info|team|support|help|sales|press|media|partners?)$/, 'General'], [/^(security|abuse)$/, 'Security']];
 
 function roleFor(email) {
@@ -71,7 +72,9 @@ export async function discoverContacts(job, company = {}) {
   const domain = website ? domainOf(website) : '';
   const found = new Map(); // email -> contact
   const add = (email, source, url, extra = {}) => {
-    email = email.toLowerCase();
+    email = String(email).toLowerCase().trim().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
+    if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,24}$/.test(email) || /@www\./.test(email)) return; // "more@www.x.com" is a scraping artifact
+    if (NOT_A_PERSON.test(email.split('@')[0])) return; // security@, press@, privacy@… are never the right inbox for a job
     if (found.has(email)) return;
     const onDomain = domain && (email.endsWith('@' + domain) || email.endsWith('.' + domain));
     found.set(email, { email, role: roleFor(email), source, url, confidence: onDomain || source === 'Job posting' ? 'published' : 'published-offdomain', ...extra });
@@ -95,10 +98,10 @@ export async function discoverContacts(job, company = {}) {
   if (gh) add(gh.email, 'GitHub organization profile', gh.url);
 
   const founders = company.founders?.length ? company.founders : await ycFounders(company.ycSlug || job.companyMeta?.ycSlug);
-  const emails = [...found.values()].filter(c => !domain || c.confidence === 'published' || found.size < 4);
+  const emails = [...found.values()].filter(c => c.role !== 'Security' && (!domain || c.confidence === 'published' || found.size < 4));
   const guesses = emails.some(c => c.role === 'Person' || c.role === 'Founders / general') ? [] : patternGuesses(founders, domain);
   // Rank: hiring/founder addresses first, then people, then general inboxes.
   const rank = { 'Hiring': 0, 'Founders / general': 1, 'Person': 2, 'General': 3, 'Security': 4 };
   emails.sort((a, b) => (rank[a.role] ?? 5) - (rank[b.role] ?? 5));
-  return { website, domain, emails, guesses, founders, socials, pagesChecked, checkedAt: new Date().toISOString() };
+  return { v: 2, website, domain, emails, guesses, founders, socials, pagesChecked, checkedAt: new Date().toISOString() };
 }

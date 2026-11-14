@@ -24,6 +24,8 @@ export function parseHeadline(title) {
   const t = title.replace(/\s+[-–|]\s+[^-–|]{2,40}$/, ''); // strip " - Publisher"
   const m = t.match(VERB);
   if (!m || !(AMOUNT.test(t) || STAGE.test(t) || /\bfunding\b/i.test(t))) return null;
+  // IPOs, acquisitions and public-market moves aren't early-stage hiring signals.
+  if (/\b(ipo|listing|lists on|shares|stock|acquires|acquired|merger|sebi|nasdaq|nyse|bse|nse)\b/i.test(t)) return null;
   // VC firms raising their own funds are not hiring signals.
   if (/\b(?:fund|funds|vehicle|LP commitments?)\b(?!ing)/i.test(t.slice(m.index)) && !/\bfunding\b/i.test(t)) return null;
   let company = t.slice(0, m.index).trim()
@@ -31,7 +33,7 @@ export function parseHeadline(title) {
   // Drop leading descriptors: "Bengaluru-based fintech startup Acme" -> "Acme", "DLI-backed C2i" -> "C2i"
   const DESC = /^.*\b(?:startup|start-up|platform|company|firm|maker|chipmaker|carmaker|manufacturer|provider|unicorn|player|app|brand|developer|operator|marketplace|lender|insurer|retailer|specialist|venture|outfit|disruptor|challenger|giant|major|newcomer)s?\s+(?=\S)/i;
   if (DESC.test(company)) company = company.replace(DESC, '');
-  company = company.replace(/^(?:[\w.&]+-(?:based|backed|focused|led|owned|founded|incubated|powered)\s+)+/i, '')
+  company = company.replace(/^(?:[\w.&]+-(?:based|backed|focused|led|owned|founded|incubated|powered)\s+)+/i, '').replace(/^[A-Z][\w.]*(?:['’]s)\s+(?=[A-Z0-9])/, '')
     .replace(/['’]s$/, '').replace(/^[^A-Za-z0-9]+/, '').replace(/[,:;]+$/, '').trim();
   if (!company || company.split(/\s+/).length > 4 || company.length > 40 || /^(it|this|the|a|an|how|why|what|startups?|investors?|india|us|report|exclusive)$/i.test(company)) return null;
   if (/^(how|why|what|when|where|who|these|top|here|this|our|my|your|all|most|many|some|\d+)\b/i.test(company)) return null;
@@ -67,6 +69,12 @@ export async function fetchRecentYc() {
     } catch { /* batch may not exist yet */ }
   }
   return out;
+}
+
+/** Every YC company currently marked as hiring (any batch). */
+export async function fetchYcHiring() {
+  const { data } = await getJson('https://yc-oss.github.io/api/companies/hiring.json', { timeout: 60000 });
+  return data.filter(c => c.status !== 'Inactive' && c.status !== 'Acquired').map(c => ({ name: c.name, slug: c.slug, website: c.website, oneLiner: c.one_liner, batch: c.batch, teamSize: c.team_size, industry: c.industry, url: c.url }));
 }
 
 /** Best-effort website lookup for a company only known from a headline. Confirms by page title. */

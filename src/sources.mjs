@@ -86,6 +86,25 @@ function simplifyAdapter(url, label, days = 30) {
   };
 }
 
+/** Adapter for auto-discovered GitHub lists: accepts Simplify-style or Sarthzk-style rows. */
+export function genericListAdapter(url, id) {
+  return async () => {
+    const { data, changed } = await getJson(url, { timeout: 60000 });
+    if (!changed) return [];
+    const rows = Array.isArray(data) ? data : data.listings || data.jobs || [];
+    return rows.filter(r => r && r.url && r.title && (r.company_name || r.company) && r.active !== false && r.is_visible !== false && r.status !== 'closed').map(r => {
+      const posted = r.date_posted || r.date_found || r.first_seen || r.posted;
+      const iso = toIso(typeof posted === 'string' && /^\d+$/.test(posted) ? Number(posted) : posted);
+      const sponsorship = r.sponsorship || (r.citizenship_required ? 'U.S. Citizenship is Required' : r.no_sponsorship === true ? 'Does Not Offer Sponsorship' : '');
+      const category = r.category || (Array.isArray(r.tracks) ? r.tracks.join(', ') : '');
+      return { title: r.title, company: r.company_name || r.company, url: r.url, locations: r.locations || [r.location].filter(Boolean),
+        salary: typeof r.pay === 'string' ? r.pay : r.pay?.min ? `$${r.pay.min}–${r.pay.max || r.pay.min} ${r.pay.period || ''}`.trim() : '',
+        description: [category && `Category: ${category}`, r.terms?.length && `Terms: ${r.terms.join(', ')}`, sponsorship && `Sponsorship: ${sponsorship}`, r.degrees?.length && `Degrees: ${r.degrees.join(', ')}`, r.advanced_degree && 'Degrees: Master\'s, PhD'].filter(Boolean).join('\n'),
+        postedAt: iso, precision: typeof posted === 'number' || /T\d/.test(String(posted)) ? 'minute' : 'date', sourceJobId: `${id}:${r.id || r.url}` };
+    }).filter(p => p.postedAt && recent(p.postedAt, 30)); // undated rows from a community list can't be trusted as fresh
+  };
+}
+
 async function sarthzkIndia() {
   const { data, changed } = await getJson('https://raw.githubusercontent.com/Sarthzk/internship-tracker/main/data/listings.json', { timeout: 30000 });
   if (!changed) return [];
@@ -166,7 +185,9 @@ async function startupJobs() {
   if (!changed) return [];
   return feedEntries(body).map(it => {
     const description = xmlText(it, 'content:encoded') || xmlText(it, 'description');
-    return { title: xmlText(it, 'title'), company: xmlText(it, 'company') || xmlText(it, 'dc:creator') || 'Startup', url: xmlLink(it),
+    let title = xmlText(it, 'title'); let company = xmlText(it, 'company') || xmlText(it, 'dc:creator');
+    if (!company) { const m = title.match(/^(.*\S)\s+at\s+([^@]+?)\s*$/i); if (m) { title = m[1]; company = m[2]; } }
+    return { title, company: company || 'Startup', url: xmlLink(it),
       location: xmlText(it, 'location'), description, postedAt: toIso(xmlTag(it, 'pubDate')), precision: 'minute' };
   });
 }

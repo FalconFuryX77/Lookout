@@ -2,18 +2,20 @@
 // Polls job sources + company ATS boards on short intervals, links funding news to companies,
 // deduplicates across sources, and pushes matches to your phone via ntfy.
 import http from 'node:http';
+import zlib from 'node:zlib';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Store } from './src/store.mjs';
-import { JOB_SOURCES } from './src/sources.mjs';
-import { FUNDING_FEEDS, fetchFundingFeed, fetchRecentYc, guessWebsite } from './src/funding.mjs';
+import { JOB_SOURCES, genericListAdapter } from './src/sources.mjs';
+import { harvestBoards, discoverGithubLists, boardInterval, inspectList } from './src/discovery.mjs';
+import { FUNDING_FEEDS, fetchFundingFeed, fetchRecentYc, fetchYcHiring, guessWebsite, parseHeadline } from './src/funding.mjs';
 import { fetchBoard, detectAts, detectInText, ATS_PROVIDERS } from './src/ats.mjs';
 import { discoverContacts, websiteFor, NOT_COMPANY_SITES } from './src/contacts.mjs';
 import { sendAlerts, testPush } from './src/notify.mjs';
-import { matches, effectiveTime } from './public/filters.mjs';
+import { matches, effectiveTime, fundStageOf, normCo } from './public/filters.mjs';
 import { normCompany } from './src/dedupe.mjs';
-import { pool, domainOf } from './src/util.mjs';
+import { pool, domainOf, canonicalUrl } from './src/util.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 4173);
@@ -22,6 +24,25 @@ const store = new Store(path.join(ROOT, 'data'));
 await store.load();
 const S = store.state;
 store.state.settings.appUrl = `http://127.0.0.1:${PORT}`;
+S.boards ||= {}; S.dynamicSources ||= []; S.discoveryLog ||= []; S.blockedCompanies ||= [];
+for (const c of Object.values(S.companies)) if (c.contacts && c.contacts.v !== 2) c.contacts = null; // re-check with the cleaner v2 finder
+if (S.boardVerifyMigrated !== 1) { // drop boards that were guessed from company names (unverified), then re-detect from site links
+  const reset = new Set();
+  for (const c of Object.values(S.companies)) if (c.ats && c.ats.provider !== 'yc' && !c.atsVia && (c.yc || c.funding?.length)) { reset.add(c.key); c.ats = null; c.atsCheckedAt = null; }
+  for (const b of Object.values(S.boards)) if (!b.watched && ['YC directory', 'funding news', 'company site'].includes(b.via) && reset.has(normCompany(b.company))) delete S.boards[b.key];
+  const old = S.jobs; const before = old.length;
+  const drop = j => j.sources.every(s => s.source === 'ats') && reset.has(normCompany(j.company)) && !S.tracking[j.id];
+  for (const j of old) if (drop(j)) { store.byId.delete(j.id); store.dedupe.unindex(j); }
+  S.jobs = old.filter(j => !drop(j)); // S is store.state
+  S.boardVerifyMigrated = 1; store.touch();
+  console.log(`boards: re-verifying ${reset.size} companies; removed ${before - S.jobs.length} roles from unverified boards`);
+}
+{ // re-validate stored funding headlines with the current parser (drops IPOs, VC funds, bad names)
+  const bad = new Set(S.funding.filter(f => !parseHeadline(f.title)).map(f => f.url));
+  if (bad.size) { S.funding = S.funding.filter(f => !bad.has(f.url)); for (const c of Object.values(S.companies)) if (c.funding?.length) c.funding = c.funding.filter(f => !bad.has(f.url)); console.log(`funding: dropped ${bad.size} non-funding headlines`); }
+}
+const allSources = () => [...JOB_SOURCES, ...dynamicSourceObjects()];
+const srcLabel = id => allSources().find(s => s.id === id)?.name || id;
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
 // ---------------------------------------------------------------- funding helpers
@@ -36,12 +57,17 @@ function fundingInfo(c) {
 function view(job) {
   const c = store.company(job.company);
   const funding = fundingInfo(c) || (job.companyMeta?.funded ? { label: job.companyMeta.yc ? `YC ${job.companyMeta.yc}` : 'Funded' } : null);
-  return { ...job, funded: !!funding, funding, contactCount: (c?.contacts?.emails?.length || 0) + (job.emails?.length || 0) };
+  const v = { ...job, funded: !!funding, funding, contactCount: (c?.contacts?.emails?.length || 0) + (job.emails?.length || 0), teamSize: c?.teamSize || null };
+  v.fundStage = fundStageOf(v);
+  const site = c?.website || websiteFor(job, c);
+  v.domain = c?.domain || (site ? domainOf(site) : '');
+  return v;
 }
 function slim(j) {
   const v = view(j);
-  const { description, requirements, ...rest } = v;
-  return { ...rest, reqCount: requirements?.length || 0, snippet: (description || '').slice(0, 220) };
+  // The list needs far less than the detail view: no description, URLs, skill groups or full source records.
+  const { description, requirements, urls, companyUrl, applyUrl, companyMeta, lastSeen, url, skills, sources, emails, ...rest } = v;
+  return { ...rest, skills: (skills || []).map(s => s.name), sources: (sources || []).map(s => ({ source: s.source })), emails: emails?.length ? [emails[0]] : [], snippet: (description || '').slice(0, 160) };
 }
 
 // ---------------------------------------------------------------- alerts
@@ -60,7 +86,8 @@ async function handleNew(newJobs, bootstrapping) {
   for (const j of newJobs) {
     if (!alertEligible(j, bootstrapping)) continue;
     const v = view(j);
-    const sets = S.filterSets.filter(fs => fs.alert && matches(v, fs.filters, { tracking: S.tracking }));
+    const ctx = { tracking: S.tracking, blocked: new Set(S.blockedCompanies.map(normCo)) };
+    const sets = S.filterSets.filter(fs => fs.alert && matches(v, fs.filters, ctx));
     if (sets.length) items.push({ job: v, sets: sets.map(s => s.name) });
   }
   if (!items.length) return;
@@ -72,13 +99,20 @@ async function handleNew(newJobs, bootstrapping) {
   store.touch();
 }
 
-function ingestAll(sourceId, postings) {
+function ingestAll(sourceId, postings, backfill = false) {
   const fresh = [];
   for (const p of postings) {
     if (!p.title || !p.url || !p.company) continue;
-    const { job, isNew } = store.ingest({ ...p, source: sourceId });
+    const { job, isNew } = store.ingest({ ...p, source: sourceId, backfill: backfill && !p.postedAt });
+    if (!job) continue; // too old or previously pruned
+    if (!isNew && !backfill) continue; // known posting; nothing new to learn from its links
     if (p.companyMeta?.yc) store.upsertCompany(job.company, { yc: p.companyMeta.yc, ycSlug: p.companyMeta.ycSlug, ycRecent: true });
     if (p.companyUrl && !NOT_COMPANY_SITES.test(p.companyUrl)) { const c = store.company(job.company); if (!c?.website) store.upsertCompany(job.company, { website: p.companyUrl }); }
+    for (const h of harvestBoards(`${p.url} ${p.applyUrl || ''} ${sourceId === 'hn-hiring' ? p.description || '' : ''}`)) {
+      if (sourceId === 'ats') break; // a board's own links point back to itself
+      addBoard(h.provider, h.board, job.company, srcLabel(sourceId));
+      const c = store.company(job.company); if (c && !c.ats) { c.ats = h; c.atsVia = 'harvest'; c.atsCheckedAt = new Date().toISOString(); }
+    }
     if (isNew) fresh.push(job);
   }
   return fresh;
@@ -93,8 +127,10 @@ async function runSource(src) {
   const started = Date.now(); const bootstrapping = !st.runs;
   try {
     const postings = await src.run({ cursor: st.cursor ||= {} });
-    const fresh = ingestAll(src.id, postings);
+    const fresh = ingestAll(src.id, postings, bootstrapping);
     Object.assign(st, { ok: true, at: new Date().toISOString(), ms: Date.now() - started, fetched: postings.length, added: fresh.length, error: '' });
+    if (postings.length) { st.dataRuns = (st.dataRuns || 0) + 1; st.seen = (st.seen || 0) + postings.length; st.unique = (st.unique || 0) + fresh.length; }
+    if (src.dynamic) { const d = S.dynamicSources.find(x => x.id === src.id); if (d && st.dataRuns >= 2 && !st.unique) { d.disabled = true; (S.rejectedRepos ||= []).push(d.repo.toLowerCase()); S.discoveryLog.unshift({ at: new Date().toISOString(), kind: 'retired', text: d.name, via: 'no unique jobs' }); log(`retired ${d.name}: everything it lists is already covered`); } }
     st.runs = (st.runs || 0) + 1; st.totalAdded = (st.totalAdded || 0) + fresh.length;
     if (fresh.length) log(`${src.id}: +${fresh.length} new (${postings.length} fetched)`);
     await handleNew(fresh, bootstrapping);
@@ -107,35 +143,109 @@ async function runSource(src) {
   }
 }
 
-// ATS boards: every watched / funded / YC company with a detected board.
-function boards() {
-  const out = [];
-  for (const w of S.watch) out.push({ key: `w:${w.id}`, provider: w.provider, board: w.board, company: w.name, priority: 0 });
-  for (const c of Object.values(S.companies)) if (c.ats) out.push({ key: `c:${c.key}`, provider: c.ats.provider, board: c.ats.board, company: c.name, priority: fundingInfo(c)?.at ? 1 : 2 });
-  return out;
+// ATS boards registry: watched + company-detected + harvested from every link we see.
+const bkey = (provider, board) => `${provider}:${String(board).toLowerCase()}`;
+const JUNK_BOARD = /\s|^[0-9a-f]{8}-[0-9a-f]{4}-|test|referral|sandbox|demo|merge|staging|^(?:en|de|fr|es|us|uk)(?:-[a-z]{2})?$/i;
+const boardByCo = new Map(); // normCompany -> board key (one board per company)
+{ // startup cleanup: drop junk boards and keep one board per company (prefer a real ATS with the most roles)
+  const keep = new Map(); let removed = 0;
+  for (const b of Object.values(S.boards)) {
+    if (!b.watched && b.provider !== 'yc' && JUNK_BOARD.test(b.board)) { delete S.boards[b.key]; removed++; continue; }
+    const ck = normCompany(b.company); const cur = keep.get(ck);
+    const rank = x => (x.watched ? 1e6 : 0) + (x.provider === 'yc' ? 0 : 1e5) + (x.openRoles || 0);
+    if (!cur) keep.set(ck, b); else { const loser = rank(b) > rank(cur) ? cur : b; if (!loser.watched) { delete S.boards[loser.key]; removed++; } keep.set(ck, loser === cur ? b : cur); }
+  }
+  for (const [ck, b] of keep) if (S.boards[b.key]) boardByCo.set(ck, b.key);
+  if (removed) console.log(`boards: removed ${removed} junk/duplicate boards`);
 }
-const boardPolled = {};
-const BOARD_EVERY = [60e3, 120e3, 600e3]; // watched: 1 min, freshly funded: 2 min, other YC: 10 min
+function addBoard(provider, board, company, via, { force = false } = {}) {
+  if (!ATS_PROVIDERS.includes(provider) || !board) return null;
+  if (!force && provider !== 'yc' && JUNK_BOARD.test(board)) return null;
+  const k = bkey(provider, board);
+  let b = S.boards[k];
+  const ck = company ? normCompany(company) : '';
+  if (!b && ck && !force) { const other = S.boards[boardByCo.get(ck)]; if (other && other.key !== k && (other.errors || 0) < 3) return other; }
+  if (!b) { if (ck) boardByCo.set(ck, k); b = S.boards[k] = { key: k, provider, board, company: company || board, via, addedAt: new Date().toISOString(), newCount: 0, errors: 0 }; S.discoveryLog.unshift({ at: b.addedAt, kind: 'board', text: `${company || board} · ${provider}`, via }); store.touch(); }
+  else if (company && b.company === b.board) b.company = company;
+  return b;
+}
+function syncBoards() {
+  for (const w of S.watch) { const b = addBoard(w.provider, w.board, w.name, 'you', { force: true }); if (b) b.watched = true; }
+  const watched = new Set(S.watch.map(w => bkey(w.provider, w.board)));
+  for (const b of Object.values(S.boards)) if (b.watched && !watched.has(b.key)) b.watched = false;
+  for (const c of Object.values(S.companies)) {
+    if (!c.ats) continue;
+    const b = addBoard(c.ats.provider, c.ats.board, c.name, c.funding?.length ? 'funding news' : c.yc ? 'YC directory' : 'company site');
+    if (!b) continue;
+    const f = fundingInfo(c); b.fundedAt = f?.at || null; b.ycRecent = !!(c.yc && c.ycRecent);
+  }
+}
+function boards() { return Object.values(S.boards); }
 async function runBoards() {
   if (running.has('ats')) return; running.add('ats');
   const st = S.sourceStatus['ats'] ||= { cursor: {}, runs: 0 };
   const started = Date.now();
   try {
-    const due = boards().filter(b => Date.now() - (boardPolled[b.key] || 0) >= BOARD_EVERY[b.priority]).sort((a, b) => a.priority - b.priority).slice(0, 60);
+    syncBoards();
+    const now = Date.now();
+    // Most overdue relative to its own interval first, so slow tiers aren't starved by fast ones.
+    const due = boards().map(b => { const iv = boardInterval(b, now); return { b, ratio: (now - Date.parse(b.lastPolled || 0)) / iv }; }).filter(x => x.ratio >= 1)
+      .sort((x, y) => y.ratio - x.ratio).slice(0, 50).map(x => x.b);
     let fetched = 0, added = 0, errors = 0;
-    await pool(due, 8, async b => {
-      boardPolled[b.key] = Date.now();
+    await pool(due, 10, async b => {
+      b.lastPolled = new Date().toISOString();
       try {
-        const posts = await fetchBoard(b); fetched += posts.length;
-        const firstTime = !st.cursor[b.key]; st.cursor[b.key] = Date.now();
-        const fresh = ingestAll('ats', posts); added += fresh.length;
+        const posts = await fetchBoard({ provider: b.provider, board: b.board, company: b.company !== b.board ? b.company : undefined }); fetched += posts.length;
+        const firstTime = !b.polledOnce; b.polledOnce = true; b.errors = 0; b.openRoles = posts.length;
+        const fresh = ingestAll('ats', posts, firstTime); added += fresh.length;
+        if (fresh.length && !firstTime) { b.lastNewAt = new Date().toISOString(); b.newCount += fresh.length; }
+        if (firstTime && posts.length) b.lastNewAt = posts.map(p => p.postedAt).filter(Boolean).sort().pop() || null;
         await handleNew(fresh, firstTime);
-      } catch (e) { errors++; if (e.status === 404) { const c = Object.values(S.companies).find(x => `c:${x.key}` === b.key); if (c) c.ats = null; } }
+      } catch (e) {
+        errors++; b.errors = (b.errors || 0) + 1; b.lastError = e.message;
+        if (e.status === 404 && b.errors >= 3 && !b.watched) { delete S.boards[b.key]; const c = Object.values(S.companies).find(x => x.ats && bkey(x.ats.provider, x.ats.board) === b.key); if (c) c.ats = null; }
+      }
     });
-    Object.assign(st, { ok: true, at: new Date().toISOString(), ms: Date.now() - started, fetched, added, boards: boards().length, polled: due.length, error: errors ? `${errors} board(s) failed` : '' });
+    Object.assign(st, { ok: true, at: new Date().toISOString(), ms: Date.now() - started, fetched, added, boards: boards().length, polled: due.length, error: errors ? `${errors} board(s) failed this round` : '' });
     st.runs++; st.totalAdded = (st.totalAdded || 0) + added;
     if (added) log(`ats: +${added} new from ${due.length} boards`);
-  } finally { running.delete('ats'); nextAt.ats = Date.now() + 30e3; store.touch(); broadcast('status', { id: 'ats', ...publicStatus('ats') }); }
+  } finally { running.delete('ats'); nextAt.ats = Date.now() + 15e3; store.touch(); broadcast('status', { id: 'ats', ...publicStatus('ats') }); }
+}
+
+// GitHub list discovery: find new curated job-list repos every 6 hours.
+async function runListDiscovery() {
+  if (running.has('lists')) return; running.add('lists');
+  try {
+    const known = new Set([...JOB_SOURCES.map(s => (s.home || '').replace('https://github.com/', '').toLowerCase()), ...S.dynamicSources.map(d => d.repo.toLowerCase()), ...(S.rejectedRepos || [])]);
+    const found = await discoverGithubLists(known, m => log('lists:', m));
+    // Quality gate: must be mostly dated, and must not just mirror what other sources already have.
+    const judge = async (d, selfId) => {
+      const q = await inspectList(d.url);
+      const covered = q.urls.filter(u => { const id = store.dedupe.byUrl.get(canonicalUrl(u)); const j = id && store.byId.get(id); return (j && j.sources.some(s => s.source !== selfId)) || store.gone.has(canonicalUrl(u)); }).length;
+      const overlap = q.urls.length ? covered / q.urls.length : 1;
+      if (q.datedShare < 0.5) return `only ${Math.round(q.datedShare * 100)}% of rows are dated`;
+      if (overlap > 0.7) return `${Math.round(overlap * 100)}% duplicates other sources`;
+      return null;
+    };
+    const retire = (d, why) => { d.disabled = true; (S.rejectedRepos ||= []).push(d.repo.toLowerCase()); S.discoveryLog.unshift({ at: new Date().toISOString(), kind: 'retired', text: d.name, via: why }); log(`lists: retired ${d.name} (${why})`); };
+    for (const d of S.dynamicSources.filter(x => !x.disabled && x.validated !== 2)) {
+      try { const why = await judge(d, d.id); if (why) retire(d, why); else { d.validated = 2; log(`lists: kept ${d.name}`); } }
+      catch (e) { log(`lists: could not check ${d.name}: ${e.message}`); }
+    }
+    let added = 0;
+    for (const d of found) {
+      let why = null; try { why = await judge(d, d.id); } catch (e) { why = e.message; }
+      if (why) { (S.rejectedRepos ||= []).push(d.repo.toLowerCase()); log(`lists: skipped ${d.name} (${why})`); continue; }
+      S.dynamicSources.push({ ...d, every: 300, runs: 0, unique: 0, disabled: false, validated: 2 }); added++;
+      S.discoveryLog.unshift({ at: d.addedAt, kind: 'source', text: d.name, via: 'GitHub search' });
+    }
+    S.sourceStatus.lists = { ok: true, at: new Date().toISOString(), added, error: '' };
+    store.touch();
+  } catch (e) { S.sourceStatus.lists = { ok: false, at: new Date().toISOString(), error: e.message }; }
+  finally { running.delete('lists'); nextAt.lists = Date.now() + 6 * 36e5; }
+}
+function dynamicSourceObjects() {
+  return S.dynamicSources.filter(d => !d.disabled).map(d => ({ id: d.id, name: d.name, every: d.every || 300, home: d.home, trust: `Auto-discovered GitHub list (${d.stars ?? 0}★, ${d.rows} rows)`, dynamic: true, run: genericListAdapter(d.url, d.id) }));
 }
 
 // Funding news + YC batches -> companies.
@@ -156,6 +266,7 @@ async function runFunding() {
     if (!st.cursor.ycAt || Date.now() - st.cursor.ycAt > 6 * 36e5) {
       const yc = await fetchRecentYc();
       for (const c of yc) store.upsertCompany(c.name, { website: c.website, yc: c.batch, ycSlug: c.slug, ycRecent: true, ycUrl: c.url, oneLiner: c.oneLiner, isHiring: c.isHiring, teamSize: c.teamSize, industry: c.industry });
+      try { const hiring = await fetchYcHiring(); for (const c of hiring) { const co = store.upsertCompany(c.name, { website: c.website, yc: c.batch, ycSlug: c.slug, ycUrl: c.url, oneLiner: c.oneLiner, isHiring: true, teamSize: c.teamSize, industry: c.industry }); if (co && !co.ats) co.ats = { provider: 'yc', board: c.slug }; } st.ycHiring = hiring.length; } catch (e) { errs.push(`YC hiring: ${e.message}`); }
       st.cursor.ycAt = Date.now(); st.ycCompanies = yc.length;
     }
     S.funding.sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || ''));
@@ -173,7 +284,7 @@ async function runDiscovery() {
       .map(c => ({ c, p: (fundingInfo(c)?.at ? 0 : c.isHiring ? 1 : c.yc ? 2 : 3) })).filter(x => x.p < 3).sort((a, b) => a.p - b.p).slice(0, 6);
     await pool(cands, 3, async ({ c }) => {
       if (!c.website) c.website = await guessWebsite(c.name);
-      if (c.website) { c.domain = domainOf(c.website); c.ats = await detectAts(c.website, c.name); }
+      if (c.website) { c.domain = domainOf(c.website); c.ats = await detectAts(c.website, c.name); if (c.ats) c.atsVia = 'site'; }
       if (!c.ats && c.ycSlug && c.isHiring) c.ats = { provider: 'yc', board: c.ycSlug };
       c.atsCheckedAt = new Date().toISOString(); store.touch();
       if (c.ats) log(`discovery: ${c.name} -> ${c.ats.provider}/${c.ats.board}`);
@@ -194,7 +305,7 @@ async function contactsFor(job, force = false) {
     return discoverContacts(job, c);
   })().then(r => {
     c.contacts = r; if (r.website && !c.website) c.website = r.website; if (r.founders?.length) c.founders = r.founders; c.socials = r.socials;
-    if (!c.ats && !c.atsCheckedAt && r.website) detectAts(r.website, c.name).then(a => { c.ats = a; c.atsCheckedAt = new Date().toISOString(); store.touch(); }).catch(() => { });
+    if (!c.ats && !c.atsCheckedAt && r.website) detectAts(r.website, c.name).then(a => { c.ats = a; if (a) c.atsVia = 'site'; c.atsCheckedAt = new Date().toISOString(); store.touch(); }).catch(() => { });
     store.touch(); return mergeJobEmails(r, job);
   }).finally(() => contactInFlight.delete(key));
   contactInFlight.set(key, p); return p;
@@ -213,17 +324,18 @@ function publicStatus(id) { const { cursor, ...rest } = S.sourceStatus[id] || {}
 
 let scanAllRequested = false;
 async function tick() {
-  for (const src of JOB_SOURCES) if (!running.has(src.id) && (scanAllRequested || Date.now() >= (nextAt[src.id] || 0))) runSource(src);
-  if (scanAllRequested) { for (const k of Object.keys(boardPolled)) boardPolled[k] = 0; }
+  for (const src of allSources()) if (!running.has(src.id) && (scanAllRequested || Date.now() >= (nextAt[src.id] || 0))) runSource(src);
+  if (scanAllRequested) { for (const b of boards()) if (boardInterval(b) <= 600e3) b.lastPolled = null; }
   scanAllRequested = false;
   if (Date.now() >= (nextAt.ats || 0)) runBoards();
   if (Date.now() >= (nextAt.funding || 0)) runFunding();
   if (Date.now() >= (nextAt.discovery || 0)) runDiscovery();
+  if (Date.now() >= (nextAt.lists || 0)) runListDiscovery();
   runContactQueue();
 }
 // stagger first runs so startup doesn't hammer everything at once
 JOB_SOURCES.forEach((s, i) => { nextAt[s.id] = Date.now() + i * 1500; });
-nextAt.ats = Date.now() + 20e3; nextAt.discovery = Date.now() + 30e3;
+nextAt.ats = Date.now() + 20e3; nextAt.discovery = Date.now() + 30e3; nextAt.lists = S.dynamicSources.some(d => !d.disabled && d.validated !== 2) ? Date.now() + 60e3 : S.sourceStatus.lists?.at ? Date.parse(S.sourceStatus.lists.at) + 6 * 36e5 : Date.now() + 90e3;
 setInterval(tick, 3000); tick();
 setInterval(() => { store.prune(); store.save().catch(e => log('save failed', e.message)); }, 15e3);
 setInterval(() => { for (const res of sse) res.write(': ping\n\n'); }, 25e3);
@@ -235,10 +347,20 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.
 
 function sourcesMeta() {
   return [
-    ...JOB_SOURCES.map(s => ({ id: s.id, name: s.name, every: s.every, home: s.home, trust: s.trust, kind: 'jobs', ...publicStatus(s.id) })),
-    { id: 'ats', name: 'Company career pages (ATS)', every: 30, home: '', trust: 'Direct from the company’s own Greenhouse / Lever / Ashby / Workable / SmartRecruiters / Recruitee board', kind: 'jobs', ...publicStatus('ats') },
+    ...allSources().map(s => ({ id: s.id, name: s.name, every: s.every, home: s.home, trust: s.trust, kind: 'jobs', dynamic: !!s.dynamic, ...publicStatus(s.id) })),
+    { id: 'ats', name: 'Company career pages (ATS)', every: 30, home: '', trust: 'Direct from each company’s own Greenhouse / Lever / Ashby / Workable / SmartRecruiters / Recruitee / YC board, polled every 1–60 min depending on activity', kind: 'jobs', ...publicStatus('ats') },
     { id: 'funding', name: 'Funding news + YC batches', every: 300, home: '', trust: FUNDING_FEEDS.map(f => f.name).join(', ') + ', yc-oss', kind: 'funding', ...publicStatus('funding') },
   ];
+}
+function discoveryOverview() {
+  const now = Date.now(); const all = boards();
+  const tiers = { '1 min': 0, '2 min': 0, '3 min': 0, '10 min': 0, '15 min': 0, '30 min': 0, '60 min': 0, 'backing off': 0 };
+  const name = ms => ms === 60e3 ? '1 min' : ms === 120e3 ? '2 min' : ms === 180e3 ? '3 min' : ms === 600e3 ? '10 min' : ms === 900e3 ? '15 min' : ms === 1800e3 ? '30 min' : ms === 3600e3 ? '60 min' : 'backing off';
+  const byProvider = {}; const byVia = {};
+  for (const b of all) { tiers[name(boardInterval(b, now))]++; byProvider[b.provider] = (byProvider[b.provider] || 0) + 1; byVia[b.via || 'other'] = (byVia[b.via || 'other'] || 0) + 1; }
+  const top = all.filter(b => b.newCount).sort((a, b) => b.newCount - a.newCount).slice(0, 12).map(b => ({ company: b.company, provider: b.provider, newCount: b.newCount, lastNewAt: b.lastNewAt }));
+  const yieldRows = allSources().map(s => { const st = S.sourceStatus[s.id] || {}; return { id: s.id, name: s.name, seen: st.seen || 0, unique: st.unique || 0, dynamic: !!s.dynamic }; });
+  return { boards: all.length, tiers, byProvider, byVia, top, log: S.discoveryLog.slice(0, 60), lists: S.dynamicSources, yield: yieldRows, listsStatus: S.sourceStatus.lists || null, nextListSearch: nextAt.lists || null, sourceCount: allSources().length + 1 };
 }
 function signals() {
   const jobsByCo = new Map();
@@ -254,13 +376,21 @@ async function route(req, res) {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.write('retry: 3000\n\n'); sse.add(res); req.on('close', () => sse.delete(res)); return;
   }
-  if (m === 'GET' && p === '/api/jobs') return json(res, 200, { jobs: S.jobs.map(slim), now: Date.now() });
+  if (m === 'GET' && p === '/api/jobs') {
+    const body = JSON.stringify({ jobs: S.jobs.map(slim), now: Date.now() });
+    if (/\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
+      const gz = await new Promise((ok, bad) => zlib.gzip(body, { level: 6 }, (e, b) => e ? bad(e) : ok(b)));
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'content-encoding': 'gzip', 'cache-control': 'no-store' }); return res.end(gz);
+    }
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); return res.end(body);
+  }
   if (m === 'GET' && p.startsWith('/api/job/')) { const j = store.byId.get(decodeURIComponent(p.slice(9))); return j ? json(res, 200, view(j)) : json(res, 404, { error: 'Not found' }); }
   if (m === 'GET' && p === '/api/meta') {
     const { ntfyToken, ...settings } = S.settings;
-    return json(res, 200, { settings: { ...settings, hasToken: !!ntfyToken }, filterSets: S.filterSets, tracking: S.tracking, sources: sourcesMeta(), watch: S.watch, alerts: S.alerts.slice(0, 50), funding: S.funding.slice(0, 300), stats: { jobs: S.jobs.length, companies: Object.keys(S.companies).length, boards: boards().length, funded: Object.values(S.companies).filter(c => fundingInfo(c)).length } });
+    return json(res, 200, { settings: { ...settings, hasToken: !!ntfyToken }, filterSets: S.filterSets, tracking: S.tracking, blockedCompanies: S.blockedCompanies, sources: sourcesMeta(), watch: S.watch, alerts: S.alerts.slice(0, 50), funding: S.funding.slice(0, 300), stats: { jobs: S.jobs.length, companies: Object.keys(S.companies).length, boards: boards().length, funded: Object.values(S.companies).filter(c => fundingInfo(c)).length } });
   }
   if (m === 'GET' && p === '/api/signals') return json(res, 200, { companies: signals() });
+  if (m === 'GET' && p === '/api/discovery') return json(res, 200, discoveryOverview());
   if (m === 'GET' && p.startsWith('/api/contacts/')) {
     const j = store.byId.get(decodeURIComponent(p.slice(14))); if (!j) return json(res, 404, { error: 'Not found' });
     return json(res, 200, await contactsFor(j, url.searchParams.get('refresh') === '1'));
@@ -277,8 +407,16 @@ async function route(req, res) {
   if (m === 'DELETE' && p.startsWith('/api/filter-sets/')) { const id = decodeURIComponent(p.slice(17)); S.filterSets = S.filterSets.filter(f => f.id !== id); store.touch(); return json(res, 200, { ok: true }); }
   if (m === 'POST' && p === '/api/track') {
     const b = await body(req); if (!store.byId.has(b.id)) return json(res, 404, { error: 'Unknown job' });
-    if (!b.status) delete S.tracking[b.id]; else S.tracking[b.id] = { status: b.status, note: String(b.note || '').slice(0, 2000), at: new Date().toISOString() };
+    const prev = S.tracking[b.id] || {};
+    const next = { status: 'status' in b ? (b.status === 'hidden' ? prev.status || '' : b.status || '') : prev.status || '', hidden: 'hidden' in b ? !!b.hidden : b.status === 'hidden' ? true : !!prev.hidden, note: 'note' in b ? String(b.note || '').slice(0, 2000) : prev.note || '', at: new Date().toISOString() };
+    if (!next.status && !next.hidden && !next.note) delete S.tracking[b.id]; else S.tracking[b.id] = next;
     store.touch(); return json(res, 200, S.tracking[b.id] || null);
+  }
+  if (m === 'POST' && p === '/api/block') {
+    const b = await body(req); const name = String(b.company || '').trim(); if (!name) return json(res, 400, { error: 'company required' });
+    S.blockedCompanies = S.blockedCompanies.filter(c => c.toLowerCase() !== name.toLowerCase());
+    if (b.block !== false) S.blockedCompanies.push(name);
+    store.touch(); return json(res, 200, { blockedCompanies: S.blockedCompanies });
   }
   if (m === 'POST' && p === '/api/settings') {
     const b = await body(req); const s = S.settings;

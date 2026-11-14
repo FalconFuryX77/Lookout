@@ -29,6 +29,18 @@ The pipeline is **funding → careers board → alert**. A startup that raises a
 
 Every listing keeps links to every source that carried it. Each funding signal links to the article it came from.
 
+## It finds new sources on its own
+
+Lookout keeps growing its own coverage:
+
+- **Board harvesting.** Every link it sees (Simplify/vanshb03 rows, HN posts, auto-discovered lists, company sites) is checked for a Greenhouse, Lever, Ashby, Workable, SmartRecruiters or Recruitee board. Each new one is added and polled directly from then on. Within 30 seconds of the first start it was already watching ~700 boards.
+- **YC directory.** Every YC company marked as hiring is watched through its own YC page, plus the ATS board found on its website.
+- **GitHub list discovery.** Every 6 hours it searches GitHub for new curated internship and new-grad repos. It checks each one's data (shape plus freshness), adds it as a source, and **retires** any list that only repeats jobs other sources already found.
+- **Adaptive polling.** Boards are polled every 1 min (you asked), 2 min (just raised), 3 min (posted in the last 3 days), 10–30 min (quiet), or 60 min (YC pages). Boards that keep failing back off to 6 hours, and dead ones are dropped.
+- **Yield tracking.** Each source shows how many *unique* roles it found first. You can see what's actually pulling its weight.
+
+The **Sources** page shows all of this live: boards by poll speed, where new sources came from, and a running discovery log.
+
 ## Deduplication
 
 Two listings count as the same role when:
@@ -40,12 +52,17 @@ Merged listings keep the most precise and earliest posting time, the longest des
 
 ## Using it
 
-- **Filters:**
-  - posting window (15 min → any time)
-  - type, level, role, location, skills, source
-  - remote, funded startups only, has contact, hide tracked
+- **Filters** (press F; active filters show as removable chips above the list):
+  - **Field**: Software & IT, Core Engineering, Product & Design, Business, Science & Research. Click once to include, twice to exclude (e.g. hide all mechanical/civil/electrical roles).
+  - **Role**: 30+ specialties (AI/ML, data science, data engineering, analytics, frontend, backend, full-stack, mobile, DevOps/cloud, security, QA, embedded, IT & support, quant, …)
+  - **Years of experience**: dual slider and presets. Choose whether to include roles that don't say.
+  - **Visa sponsorship**: sponsors, no sponsorship, citizens/clearance only, not stated. One click for "I need sponsorship".
+  - **Work mode, location, minimum pay** (converted to USD/yr from $, ₹, LPA, €, £, hourly, monthly), **degree, internship term**
+  - **Company**: recently funded only, funding stage (YC, seed, Series A, B+), hidden companies
+  - **Skills** (has any / has all), **source**, "confirmed by 2+ sources", excluded keywords, has contact email
   - search syntax: `intern python | go -senior` (spaces mean AND, `|` means OR, `-` means NOT)
-- **Saved filter sets** (left rail): save any combination. Turn 🔔 on for a set and every new match pushes to your phone. The number next to each set shows how many roles match; orange `+N` means new in the last hour.
+- **Keyboard**: Ctrl K command menu, / search, J/K move, Enter apply, S save, E draft email, X hide, F filters, Esc close.
+- **Saved views** (sidebar): save any filter combination. Turn the bell on and every new match pushes to your phone. Each view shows how many roles match; green `+N` means new in the last hour.
 - **Job panel:**
   - skills grouped by area
   - requirement bullets pulled from the posting
@@ -53,7 +70,7 @@ Merged listings keep the most precise and earliest posting time, the longest des
   - all sources
   - **Who to contact** (see below)
   - pipeline status and notes
-- **✉ Draft outreach email:** opens your mail app with a personalized draft, using your profile, the skills you share with the role, the founder's first name, and their latest round. The draft is also copied to the clipboard.
+- **Draft outreach email:** opens your mail app with a personalized draft, using your profile, the skills you share with the role, the founder's first name, and their latest round. The draft is also copied to the clipboard.
 - **Hiring signals:** every funded company, whether Lookout found its careers board, and how many roles it has open.
 - **My pipeline:** saved → applied → contacted → interviewing → closed.
 - **Sources:** live health of each source. Paste any careers page URL to watch that company every minute.
@@ -98,6 +115,8 @@ src/sources.mjs     job source adapters
 src/ats.mjs         ATS detection and polling
 src/funding.mjs     funding feeds, headline parser, YC batches
 src/contacts.mjs    published-contact discovery
+src/discovery.mjs   board harvesting, GitHub list discovery, adaptive polling
+src/taxonomy.mjs    field/role, years, visa, work mode, degree, pay, term
 src/dedupe.mjs      cross-source dedupe
 src/enrich.mjs      skills, requirements, level, type, country, salary
 src/store.mjs       persistence (data/db.json)

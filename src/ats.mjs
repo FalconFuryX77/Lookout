@@ -31,12 +31,8 @@ export async function detectAts(website, nameHint = '') {
       if (hit) return hit;
     } catch { }
   }
-  // Fallback: probe the public APIs with slugs derived from the domain / name.
-  const base = new URL(website).hostname.replace(/^www\./, '').split('.')[0];
-  const slugs = [...new Set([base, nameHint.toLowerCase().replace(/[^a-z0-9]/g, ''), nameHint.toLowerCase().trim().replace(/\s+/g, '-')].filter(s => s && s.length > 1))];
-  for (const board of slugs) for (const provider of ['ashby', 'greenhouse', 'lever']) {
-    try { const jobs = await fetchBoard({ provider, board }); if (jobs.length) return { provider, board }; } catch { }
-  }
+  // No guessing board names from the company name: generic names ("elite", "orchestra") belong to
+  // unrelated companies. A board counts only when the company's own site links to it.
   return null;
 }
 
