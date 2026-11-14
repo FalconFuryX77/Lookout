@@ -1,0 +1,16 @@
+{
+  "name": "lookout",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Near-real-time startup job & internship scanner with funding signals, dedupe, contacts and phone alerts",
+  "type": "module",
+  "main": "desktop/main.cjs",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.mjs",
+    "desktop": "electron ."
+  },
+  "devDependencies": {
+    "electron": "latest"
+  }
+}

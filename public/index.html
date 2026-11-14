@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lookout</title>
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="brand" href="#feed"><img src="/logo.svg" alt="" width="34" height="34"><span>Lookout</span></a>
+    <div class="search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search roles, companies, skills…   e.g.  intern python | go  -senior" autocomplete="off">
+    </div>
+    <div class="top-right">
+      <span id="live" class="live" title="Scanner status"><i></i><span>Connecting…</span></span>
+      <button id="scanNow" class="btn ghost" title="Poll every source now">Scan now</button>
+      <button id="menuBtn" class="btn ghost icon only-mobile" aria-label="Menu">☰</button>
+    </div>
+  </header>
+
+  <nav class="rail" id="rail">
+    <div class="nav">
+      <a href="#feed" data-view="feed" class="active"><span>Jobs</span><b id="navJobs"></b></a>
+      <a href="#signals" data-view="signals"><span>Hiring signals</span><b id="navSignals"></b></a>
+      <a href="#tracker" data-view="tracker"><span>My pipeline</span><b id="navTracker"></b></a>
+      <a href="#sources" data-view="sources"><span>Sources</span><b id="navSources"></b></a>
+      <a href="#settings" data-view="settings"><span>Alerts &amp; profile</span></a>
+    </div>
+    <div class="sets">
+      <div class="sets-head"><span>Saved filter sets</span><button id="saveSet" class="link">+ Save current</button></div>
+      <div id="setList"></div>
+      <p class="hint">Sets with 🔔 on push to your phone the moment a new match appears.</p>
+    </div>
+  </nav>
+
+  <main class="main">
+    <!-- JOBS -->
+    <section id="view-feed" class="view">
+      <div class="filterbar" id="filterbar"></div>
+      <div class="listhead">
+        <div id="resultCount" class="muted"></div>
+        <div class="listhead-right">
+          <button id="newBanner" class="newbanner hidden"></button>
+          <label class="sort">Sort <select id="sort"><option value="new">Newest first</option><option value="best">Best match</option></select></label>
+        </div>
+      </div>
+      <div class="split">
+        <div id="list" class="list" role="list"></div>
+        <aside id="detail" class="detail empty-detail"><div class="placeholder"><img src="/logo.svg" alt="" width="56"><p>Pick a role to see skills, requirements and who to contact.</p></div></aside>
+      </div>
+    </section>
+
+    <!-- SIGNALS -->
+    <section id="view-signals" class="view hidden">
+      <div class="pagehead"><div><h1>Hiring signals</h1><p class="muted">Startups that just raised (funding news + latest YC batches). Lookout finds each one’s careers board and watches it every 1–2 minutes, so you hear about their first hires early.</p></div>
+        <div class="seg" id="sigFilter"><button data-f="all" class="on">All</button><button data-f="news">Raised recently</button><button data-f="yc">YC</button><button data-f="open">Has open roles</button></div></div>
+      <div id="signalList" class="cards"></div>
+    </section>
+
+    <!-- TRACKER -->
+    <section id="view-tracker" class="view hidden">
+      <div class="pagehead"><div><h1>My pipeline</h1><p class="muted">Everything you saved, applied to or reached out about.</p></div></div>
+      <div id="board" class="kanban"></div>
+    </section>
+
+    <!-- SOURCES -->
+    <section id="view-sources" class="view hidden">
+      <div class="pagehead"><div><h1>Sources</h1><p class="muted">Every listing links back to where it came from. Company career pages (ATS) are the most trustworthy and fastest; aggregators fill the gaps.</p></div></div>
+      <div class="panel">
+        <h2>Watch a company’s careers page</h2>
+        <p class="muted">Paste a careers URL or company website. Lookout detects Greenhouse, Lever, Ashby, Workable, SmartRecruiters or Recruitee and polls it every minute.</p>
+        <form id="watchForm" class="row-form"><input name="name" placeholder="Company name (optional)"><input name="url" required placeholder="https://jobs.ashbyhq.com/acme  or  https://acme.com"><button class="btn primary">Watch</button></form>
+        <div id="watchMsg" class="muted small"></div>
+        <div id="watchList" class="chips-row"></div>
+      </div>
+      <div id="sourceTable" class="table"></div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="view-settings" class="view hidden">
+      <div class="pagehead"><div><h1>Alerts &amp; profile</h1></div></div>
+      <div class="grid2">
+        <form id="pushForm" class="panel">
+          <h2>📱 Phone alerts (ntfy)</h2>
+          <ol class="steps"><li>Install <b>ntfy</b> (free) on Android or iPhone.</li><li>Subscribe to a hard-to-guess topic, e.g. <code id="topicIdea"></code></li><li>Enter the same topic here and send a test.</li></ol>
+          <label>Topic<input name="ntfyTopic" placeholder="lookout-…" pattern="[A-Za-z0-9_-]{1,64}"></label>
+          <label>Server<input name="ntfyServer" placeholder="https://ntfy.sh"></label>
+          <label>Access token (optional, for private servers)<input name="ntfyToken" type="password" autocomplete="off"></label>
+          <label>Quiet hours (optional)<input name="quietHours" placeholder="23:30-07:00"></label>
+          <label class="check"><input type="checkbox" name="desktopNotify"> Also show desktop notifications while this page is open</label>
+          <div class="actions"><button class="btn primary">Save</button><button type="button" id="testPush" class="btn">Send test push</button><span id="pushMsg" class="muted small"></span></div>
+          <p class="hint">Topics on public ntfy.sh can be read by anyone who guesses the name. Use a long random topic, or your own ntfy server with a token.</p>
+        </form>
+        <form id="profileForm" class="panel">
+          <h2>🎯 Your profile</h2>
+          <p class="muted small">Used to rank “Best match” and to pre-fill outreach emails. Stays on this computer.</p>
+          <label>Name<input name="name" placeholder="Your name"></label>
+          <label>Your skills (comma separated)<input name="skills" placeholder="Python, React, SQL, Machine Learning"></label>
+          <label>Portfolio / LinkedIn / GitHub link<input name="link" placeholder="https://…"></label>
+          <label>Short pitch (2–3 lines about you)<textarea name="pitch" rows="4" placeholder="I'm a final-year CS student who built … I'd love to help you with …"></textarea></label>
+          <div class="actions"><button class="btn primary">Save profile</button><span id="profileMsg" class="muted small"></span></div>
+        </form>
+        <div class="panel">
+          <h2>Recent alerts</h2>
+          <div id="alertLog" class="small"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<dialog id="setDialog">
+  <form method="dialog" id="setForm">
+    <h2>Save filter set</h2>
+    <label>Name<input name="name" required maxlength="60" placeholder="e.g. Remote ML internships"></label>
+    <label class="check"><input type="checkbox" name="alert" checked> 🔔 Push new matches to my phone</label>
+    <p id="setSummary" class="muted small"></p>
+    <div class="actions"><button value="cancel" class="btn" formnovalidate>Cancel</button><button value="ok" class="btn primary">Save</button></div>
+  </form>
+</dialog>
+<div id="toast" class="toast hidden"></div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
