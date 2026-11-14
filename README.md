@@ -1,135 +1,274 @@
-# Lookout
+<p align="center"><img src="public/logo.svg" width="88" alt="Lookout logo"></p>
 
-<img src="public/logo.svg" width="64" align="right" alt="">
+<h1 align="center">Lookout</h1>
 
-Lookout is a local scanner that tracks startup jobs and internships close to real time. It watches startups that have just raised money, polls their careers pages every minute or two, deduplicates roles across every source, finds who to contact, and pushes matches to your phone.
+<p align="center"><b>Find startup jobs and internships minutes after they're posted, before the job boards do.</b><br>
+A local, near-real-time job scanner that watches freshly funded startups, deduplicates every source,<br>finds who to contact, and pushes matches to your phone.</p>
 
-## Run it
+---
 
-You need Node.js 20 or newer. There are no dependencies to install.
+## Contents
+
+- [What it does](#what-it-does)
+- [Quick start](#quick-start)
+- [Phone alerts](#phone-alerts)
+- [How it finds jobs early](#how-it-finds-jobs-early)
+- [It finds new sources on its own](#it-finds-new-sources-on-its-own)
+- [Two ways to browse](#two-ways-to-browse)
+- [Filtering and saved views](#filtering-and-saved-views)
+- [Who to contact](#who-to-contact)
+- [Memory and storage](#memory-and-storage)
+- [Deduplication and freshness](#deduplication-and-freshness)
+- [Keyboard shortcuts](#keyboard-shortcuts)
+- [Project structure](#project-structure)
+- [Development](#development)
+- [Troubleshooting](#troubleshooting)
+- [Privacy and limits](#privacy-and-limits)
+
+---
+
+## What it does
+
+- **Watches companies directly.** Lookout polls company careers boards (Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, YC Work at a Startup) every 1–60 minutes, faster for startups that just raised money.
+- **Links funding to hiring.** Startups that just raised a seed or Series A round (from TechCrunch, Crunchbase, Inc42, Entrackr, YourStory, Google News and the latest YC batches) get their careers board found and watched automatically.
+- **Covers aggregators too.** It also reads HN "Who is hiring", HN YC job posts, Simplify/vanshb03 GitHub lists, InternScan, Startup.jobs, Remote OK, We Work Remotely, Himalayas, Jobicy, Arbeitnow and Remotive.
+- **Grows its own coverage.** It harvests new careers boards from every link it sees and finds new GitHub job lists on its own.
+- **Shows each role once.** Roles are deduplicated across all sources, and each role shows every source that carried it.
+- **Filters deeply.** Filter by field, 30+ role types, years of experience, visa sponsorship, work mode, location, pay, degree, internship term, funding stage, skills and more. Save any combination as a view.
+- **Alerts you.** Phone alerts (ntfy) fire the moment a role matching a saved view appears.
+- **Helps you reach out.** It finds published contacts (job post, company site, GitHub org, YC founders) and drafts a personalised outreach email.
+- **Tracks your search.** A pipeline board holds saved, applied, contacted, interviewing and closed roles, with notes.
+- **Stays on your machine.** Everything is stored locally in one file.
+
+## Quick start
+
+**Requirements:** Windows 10/11, [Node.js 20+](https://nodejs.org), and the Microsoft Edge WebView2 runtime (preinstalled on Windows 11). There are no npm packages to install.
+
+### Option A: Windows app (recommended)
+
+Double-click **`Lookout.exe`**, or the **Lookout** shortcut on your Desktop.
+
+- It shows "Starting Lookout…" while the scanner loads your saved data (a few seconds), then opens the app.
+- Closing the window keeps scanning in the background. Use the tray icon to reopen it, or **Exit Lookout** to stop.
+- To put shortcuts on the Desktop and start Lookout automatically at sign-in, run once:
 
 ```powershell
-npm start        # or: node server.mjs
+.\setup-desktop.ps1
 ```
 
-Open <http://127.0.0.1:4173>. Keep the computer awake: scanning only happens while the server runs.
+`.\setup-desktop.ps1 -Uninstall` removes the shortcuts.
 
-### Windows app
+### Option B: in your browser
 
-`Lookout.exe` is a native window with a notification-area icon. It starts the scanner for you, and closing the window keeps scanning in the tray (use **Exit Lookout** in the tray menu to stop).
+```powershell
+npm start
+```
 
-- Build it: `.\build-desktop.ps1` (compiles `desktop\Lookout.cs` against the three WebView2 DLLs next to `Lookout.exe`, with `desktop\lookout.ico` as the icon)
-- Desktop + sign-in shortcuts: `.\setup-desktop.ps1` (`-Uninstall` removes them; it also removes old "Startup Signal" shortcuts)
-- Regenerate the icon from the logo design: `.\desktop\make-icon.ps1`
+Then open <http://127.0.0.1:4173>.
 
-## How it gets jobs early
+Lookout only scans while it's running, so keep the computer awake if you want around-the-clock alerts.
 
-| Layer | What | How often |
+## Phone alerts
+
+1. Install **ntfy** (free on [Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy) and [iOS](https://apps.apple.com/app/ntfy/id1625396347)). Subscribe to a long, hard-to-guess topic name.
+2. In Lookout, open **Settings → Phone alerts**, enter the same topic, and press **Send test push**.
+3. Turn on the **bell** next to any saved view.
+
+Each alert has **Open listing** and **Email** buttons. If a scan finds more than 4 matches at once, they arrive as a single digest. Optional quiet hours are supported (for example `23:30-07:00`).
+
+Alerts only fire for genuinely new roles. Startup imports and old listings never buzz your phone.
+
+> Anyone who guesses a topic name on public ntfy.sh can read it. Use a long random name, or run your own ntfy server and add an access token in Settings.
+
+## How it finds jobs early
+
+```mermaid
+flowchart LR
+  F[Funding news<br/>TechCrunch, Crunchbase,<br/>Inc42, Entrackr, YourStory,<br/>Google News, YC batches] --> C[Company<br/>found]
+  L[Every link seen in<br/>listings & HN posts] --> B
+  C -->|careers page links to its ATS| B[(Careers board<br/>watched)]
+  B -->|polled every 1–60 min| N[New role]
+  A[Aggregators &<br/>GitHub lists] --> N
+  N --> D{Dedupe +<br/>enrich}
+  D --> V[Your saved views]
+  V -->|match| P[Phone push<br/>+ desktop toast]
+```
+
+The fastest signal is the company's own careers board: a role appears there before any aggregator copies it. So Lookout's main pipeline is **funding → careers board → alert**. A startup that raises a round is detected from the news, its board is found through its website, and that board is then checked every 2 minutes.
+
+| Source | What | Checked every |
 |---|---|---|
-| **Company careers boards (ATS)** | Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, plus each YC company's own Work at a Startup postings | watched companies: 1 min · freshly funded: 2 min · other recent YC: 10 min |
-| **Funding signals** | TechCrunch, Crunchbase News, Entrackr, Inc42, YourStory, Google News (seed/Series A), and the last 6 YC batches (yc-oss) | every 5 min (YC data every 6 h) |
-| **Auto-discovery** | For every funded company: find its website, detect its ATS, and start watching it | continuous, in the background |
-| **Founder-posted roles** | HN "Who is hiring" (new comments only), HN YC job posts | 1 min |
-| **Curated lists** | SimplifyJobs internships + new grad, vanshb03, India Tech Internships (Sarthzk), InternScan IN/US | 2–30 min (uses ETag, so it's cheap) |
-| **Job boards** | Startup.jobs, Remote OK, We Work Remotely, Himalayas, Jobicy, Arbeitnow, Remotive | 2 min – 6 h (respects each API's terms) |
-
-The pipeline is **funding → careers board → alert**. A startup that raises a seed round is detected from the news. Lookout then locates its board and polls it every 2 minutes, so its first hires reach your phone within minutes of being posted. This copies what Tsenta does: it watches company career pages directly instead of waiting for aggregators.
-
-Every listing keeps links to every source that carried it. Each funding signal links to the article it came from.
+| Company careers boards | Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, YC company pages | 1 min (you added it), 2 min (just raised), 3 min (posting actively), 10–30 min (quiet), 60 min (YC pages) |
+| Funding signals | TechCrunch (Venture, Startups), Crunchbase News, Entrackr, Inc42, YourStory, Google News (seed/Series A, India), yc-oss batch and hiring data | 5 min (YC data every 6 h) |
+| Founder-posted roles | HN "Who is hiring" (new comments only), HN YC job posts | 1 min |
+| Curated GitHub lists | SimplifyJobs internships and new grad, vanshb03, India Tech Internships, plus lists Lookout discovers | 2–5 min |
+| India internships | InternScan India and US | 30 min (the source itself refreshes daily) |
+| Job boards | Startup.jobs, Remote OK, We Work Remotely, Himalayas, Jobicy, Arbeitnow, Remotive | 2 min – 6 h, within each API's terms |
 
 ## It finds new sources on its own
 
-Lookout keeps growing its own coverage:
+- **Board harvesting.** Every link Lookout sees (list rows, HN posts, company sites) is checked for a careers board, and each new one is polled directly from then on. It typically watches 800–1,000 boards within the first hour.
+- **GitHub list discovery.** Every 6 hours it searches GitHub for new internship and new-grad lists. A list is added only if most of its rows are dated and it isn't more than 70% duplicates. Lists that stop contributing unique roles are retired automatically.
+- **Adaptive polling.** Boards that just raised money or are actively posting get checked more often. Boards that keep failing back off, and dead ones are dropped.
+- **Verified ownership only.** A board is attached to a company only when the company's own website links to it. Board names are never guessed from company names, because generic names like "elite" belong to unrelated companies.
+- **Yield tracking.** The **Sources** page shows each source's unique contribution, boards grouped by polling speed, where new sources came from, and a running discovery log.
 
-- **Board harvesting.** Every link it sees (Simplify/vanshb03 rows, HN posts, auto-discovered lists, company sites) is checked for a Greenhouse, Lever, Ashby, Workable, SmartRecruiters or Recruitee board. Each new one is added and polled directly from then on. Within 30 seconds of the first start it was already watching ~700 boards.
-- **YC directory.** Every YC company marked as hiring is watched through its own YC page, plus the ATS board found on its website.
-- **GitHub list discovery.** Every 6 hours it searches GitHub for new curated internship and new-grad repos. It checks each one's data (shape plus freshness), adds it as a source, and **retires** any list that only repeats jobs other sources already found.
-- **Adaptive polling.** Boards are polled every 1 min (you asked), 2 min (just raised), 3 min (posted in the last 3 days), 10–30 min (quiet), or 60 min (YC pages). Boards that keep failing back off to 6 hours, and dead ones are dropped.
-- **Yield tracking.** Each source shows how many *unique* roles it found first. You can see what's actually pulling its weight.
+## Two ways to browse
 
-The **Sources** page shows all of this live: boards by poll speed, where new sources came from, and a running discovery log.
+- **List** — rows on the left, the selected role on the right. Each row shows the title, company, location and up to three facts (pay, visa, experience, remote, funding).
+- **Slides** — one role at a time, as a card. Press `V` or use the List / Slides switch.
+  - `→` or drag right: **Save** to your pipeline
+  - `←` or drag left: **Pass** (hides the role; find it later under Pipeline → Hidden)
+  - `↓`: **Later** (skips it for this session)
+  - `↑` or `Enter`: open the listing to apply · `E`: draft an email · `Space`: full details · `Z`: undo
+  - Slides follow your current filters and skip roles you've already tracked. New roles arriving don't move the card you're reading.
 
-## Deduplication
+**Settings → Appearance** has the theme (system, light, dark) and density (comfortable or compact).
+
+## Filtering and saved views
+
+Press **F** to open the filter sheet. Every count updates live, and active filters appear as removable chips above the list.
+
+| Filter | Options |
+|---|---|
+| Posted | last 15 min, 1 h, 6 h, 24 h, 3 d, 7 d, 30 d, any. Short windows only count roles with an exact posting time. |
+| Field | Software & IT, Hardware & physical engineering, Product & design, Business, Science & research. Click once to include, twice to exclude. |
+| Role | AI/ML, data science, data engineering, analytics, frontend, backend, full-stack, mobile, DevOps/cloud, security, QA, embedded, IT & support, quant, and more |
+| Years of experience | dual slider and presets ("New grad · 0–1"), with an option to include roles that don't say |
+| Visa sponsorship | sponsors, no sponsorship, citizens/clearance only, not stated. One click for "I need sponsorship". |
+| Work mode, location | remote, hybrid, on-site; by country/region |
+| Minimum pay | normalised to USD per year from $, ₹ (LPA, lakh), €, £, CAD and others, including hourly and monthly rates |
+| Degree, term | roles that accept a bachelor's, master's or PhD; internship season |
+| Company | recently funded only; stage (YC, seed, Series A, B+); hide staffing agencies; permanently blocked companies |
+| Skills, source, keywords | has any / has all skills; specific sources; confirmed by 2+ sources; excluded keywords; has a contact email |
+
+**Search syntax:** `intern python | go -senior` (a space means AND, `|` means OR, `-` means NOT, and `"quotes"` match an exact phrase).
+
+**Saved views** in the sidebar store any filter combination. A view shows its total, plus a green `+N` for roles posted in the last hour. Turn on its bell to get phone alerts.
+
+**Best match** sorting ranks roles by freshness, funding, seniority, reachability, how many sources confirmed them, and your skills (set in **Settings → Your profile**).
+
+## Who to contact
+
+For each role, Lookout looks only at **published** sources, and each address links to where it was found:
+
+1. emails written in the job post (common on HN)
+2. the company website: home, contact, about, team, careers and jobs pages, plus `/.well-known/security.txt` for discovery only
+3. the public email on the company's GitHub organization
+4. founders listed on the company's YC profile, with LinkedIn and X links
+
+Inboxes like `security@`, `press@`, `privacy@` and `noreply@` are filtered out. When no personal address exists, it offers `first@domain` pattern guesses, clearly marked **Unverified**.
+
+**Draft email** (key `E`) opens your mail app with a personalised message. It uses your pitch, the skills you share with the role, the founder's first name and their latest round. The draft is also copied to your clipboard.
+
+Lookout never sends email for you, and never uses data brokers or breach data.
+
+## Memory and storage
+
+Everything lives in **`data/db.json`** and is saved every 15 seconds. Close Lookout or reboot, and it picks up exactly where it left off.
+
+| Remembered | Details |
+|---|---|
+| Your pipeline | saved, applied, contacted, interviewing and closed roles, with notes. Tracked roles are never pruned. |
+| Hidden roles and blocked companies | hidden roles live in Pipeline → Hidden; blocked companies are in Settings |
+| Saved views | filters plus alert on/off |
+| Settings and profile | ntfy topic/server/token, quiet hours, name, skills, pitch, link |
+| Jobs | up to 12,000 roles from the last 60 days, with all their sources |
+| Scanner state | discovered boards and when each was last polled, auto-discovered lists, feed cursors (e.g. the last HN comment seen), funding rounds, contact lookups |
+| Feed versions | each feed's ETag / Last-Modified, so a restart asks "anything new?" instead of re-downloading everything |
+| Pruned roles | a list of roles already dropped, so the same old postings aren't re-added on every poll |
+
+On a restart, typically only 3 of 18 feeds send any data (the live APIs that don't support version checks). Everything else answers "unchanged".
+
+The Windows app also remembers UI preferences, such as your current filters and the open page, in `Lookout.exe.WebView2/`.
+
+- **Back up** your search by copying `data/db.json`.
+- **Start fresh** by stopping Lookout and deleting the `data` folder.
+
+## Deduplication and freshness
 
 Two listings count as the same role when:
 
 - their canonical URLs match (tracking parameters stripped), **or**
-- the normalized company name (Inc/Labs/YC batch tags removed) plus the normalized title (seasons, years, "Remote", and "SWE"/"SDE"/"Developer" synonyms collapsed) match, and their countries don't conflict.
+- the normalised company name and title match, and their cities and internship terms don't conflict.
 
-Merged listings keep the most precise and earliest posting time, the longest description, and the union of skills and emails. The UI shows "3 sources" so you can see when a role was confirmed by several sources.
+Title normalisation collapses "SWE"/"Developer"/"Engineering" synonyms and ignores word order and location/season suffixes. Descriptive suffixes are kept, so "Intern – Software" and "Intern – Mechanical" stay separate. A merged role keeps the earliest, most precise posting time and the longest description.
 
-## Using it
+Every time label follows one rule:
 
-- **Filters** (press F; active filters show as removable chips above the list):
-  - **Field**: Software & IT, Core Engineering, Product & Design, Business, Science & Research. Click once to include, twice to exclude (e.g. hide all mechanical/civil/electrical roles).
-  - **Role**: 30+ specialties (AI/ML, data science, data engineering, analytics, frontend, backend, full-stack, mobile, DevOps/cloud, security, QA, embedded, IT & support, quant, …)
-  - **Years of experience**: dual slider and presets. Choose whether to include roles that don't say.
-  - **Visa sponsorship**: sponsors, no sponsorship, citizens/clearance only, not stated. One click for "I need sponsorship".
-  - **Work mode, location, minimum pay** (converted to USD/yr from $, ₹, LPA, €, £, hourly, monthly), **degree, internship term**
-  - **Company**: recently funded only, funding stage (YC, seed, Series A, B+), hidden companies
-  - **Skills** (has any / has all), **source**, "confirmed by 2+ sources", excluded keywords, has contact email
-  - search syntax: `intern python | go -senior` (spaces mean AND, `|` means OR, `-` means NOT)
-- **Keyboard**: Ctrl K command menu, / search, J/K move, Enter apply, S save, E draft email, X hide, F filters, Esc close.
-- **Saved views** (sidebar): save any filter combination. Turn the bell on and every new match pushes to your phone. Each view shows how many roles match; green `+N` means new in the last hour.
-- **Job panel:**
-  - skills grouped by area
-  - requirement bullets pulled from the posting
-  - funding signal
-  - all sources
-  - **Who to contact** (see below)
-  - pipeline status and notes
-- **Draft outreach email:** opens your mail app with a personalized draft, using your profile, the skills you share with the role, the founder's first name, and their latest round. The draft is also copied to the clipboard.
-- **Hiring signals:** every funded company, whether Lookout found its careers board, and how many roles it has open.
-- **My pipeline:** saved → applied → contacted → interviewing → closed.
-- **Sources:** live health of each source. Paste any careers page URL to watch that company every minute.
+| Label | Meaning |
+|---|---|
+| `12m` (with a lime dot under 1 hour) | the source gave an exact posting time |
+| `today` / `Nov 14` | the source gave only a date |
+| `seen 12m` | the source gave no date; this is when Lookout first saw the role |
+| `undated` | the role was imported in bulk with no date |
 
-## Who to contact
+## Keyboard shortcuts
 
-For each company, Lookout looks only at **published** sources and shows where each address was found:
+| Key | Action | Key | Action |
+|---|---|---|---|
+| `Ctrl K` | command menu | `S` | save / unsave |
+| `/` | search | `E` | draft outreach email |
+| `J` / `K` | next / previous role | `X` | hide role |
+| `Enter` | open the listing to apply | `F` | filters |
+| `V` | switch list / slides | `Esc` | close / clear |
+| `←` `↓` `→` | pass / later / save (slides) | `Z` | undo (slides) |
 
-1. Emails written in the job post itself (common in HN posts)
-2. The company website: home, /contact, /about, /team, /careers, /jobs, and `/.well-known/security.txt`
-3. The public email on the company's GitHub organization
-4. Founders listed on the company's YC profile, with LinkedIn and X links
-5. Official social profiles linked from the website
-
-If none of those turns up a personal address, it shows **pattern guesses** (`first@domain`) clearly labelled *Guess*. Verify a guess before you rely on it. Lookout never uses data brokers or breach data, and it never sends email for you.
-
-## Phone alerts
-
-1. Install **ntfy** (free, Android/iOS) and subscribe to a long random topic.
-2. In **Alerts & profile**, enter the same topic, then press **Send test push**.
-3. Turn 🔔 on for the filter sets you care about.
-
-Each push has **Open listing** and **Email** buttons. Bursts of more than 4 matches are combined into one digest. Quiet hours are supported.
-
-Alerts fire only for roles that are actually new. Startup imports and old listings never buzz your phone.
-
-Anyone who guesses a public ntfy.sh topic can read it. For private alerts, use your own ntfy server and a token.
-
-## Limits
-
-- "Real time" means polling. Most sources are checked every 1–2 minutes, but a source can be slow to publish, and nothing runs while the computer sleeps.
-- Some listings carry only a date, not a time (marked "date only"). They never count toward last-hour windows unless Lookout first saw them in that window.
-- Wellfound, LinkedIn, and YC's logged-in Work at a Startup block automated access, so they are not scraped.
-- India-specific coverage comes from InternScan India, the Sarthzk tracker, India funding news (Entrackr, Inc42, YourStory), and auto-watched boards of Indian startups. It grows as more funded companies are discovered.
-- Skills come from a ~300-term vocabulary matched against the listing text. They are a fast index, not a substitute for reading the post.
-
-## Files
+## Project structure
 
 ```
-server.mjs          scheduler, alerting, HTTP API, live updates (SSE)
-src/sources.mjs     job source adapters
-src/ats.mjs         ATS detection and polling
-src/funding.mjs     funding feeds, headline parser, YC batches
-src/contacts.mjs    published-contact discovery
-src/discovery.mjs   board harvesting, GitHub list discovery, adaptive polling
-src/taxonomy.mjs    field/role, years, visa, work mode, degree, pay, term
-src/dedupe.mjs      cross-source dedupe
-src/enrich.mjs      skills, requirements, level, type, country, salary
-src/store.mjs       persistence (data/db.json)
-src/notify.mjs      ntfy push
-public/             UI (index.html, app.js, app.css, filters.mjs, logo.svg)
+Lookout.exe            Windows app (native window + tray, starts the scanner)
+server.mjs             scheduler, alerting, discovery loops, HTTP API, live updates (SSE)
+src/
+  sources.mjs          job source adapters (HN, GitHub lists, job boards)
+  ats.mjs              careers-board detection and polling
+  funding.mjs          funding feeds, headline parser, YC batches
+  discovery.mjs        board harvesting, GitHub list discovery, adaptive polling
+  taxonomy.mjs         field/role, years, visa, work mode, degree, pay, term
+  enrich.mjs           skills, requirements, level, type, country, salary, emails
+  dedupe.mjs           cross-source deduplication
+  contacts.mjs         published-contact discovery
+  store.mjs            persistence, migrations, ingestion
+  notify.mjs           ntfy push
+  util.mjs             HTTP with conditional requests, HTML/RSS parsing
+public/                the web UI (index.html, app.js, app.css, filters.mjs, logo.svg)
+desktop/
+  Lookout.cs           source for Lookout.exe
+  lookout.ico          app icon (generated by make-icon.ps1)
+  main.cjs             optional Electron wrapper (not needed)
+build-desktop.ps1      builds Lookout.exe
+setup-desktop.ps1      installs Desktop + sign-in shortcuts
+data/db.json           your data (not committed)
 ```
 
-All data stays in `data/db.json` on this computer.
+`public/filters.mjs` is shared by the UI and the server, so a saved view filters the list and triggers phone alerts in exactly the same way.
+
+## Development
+
+```powershell
+npm start                     # run the scanner + UI on http://127.0.0.1:4173
+.\build-desktop.ps1           # rebuild Lookout.exe (compiles desktop\Lookout.cs with the .NET Framework compiler)
+.\desktop\make-icon.ps1       # regenerate desktop\lookout.ico from the logo design
+```
+
+- **Environment variables:** `PORT` (default 4173), `HOST` (default `127.0.0.1`; set `0.0.0.0` to reach it from your phone on the same Wi-Fi).
+- **Dependencies:** none at runtime. The server uses only Node's built-in modules, and the UI is plain HTML, CSS and JS.
+- **Migrations:** run automatically on startup (see `src/store.mjs`), so older `db.json` files upgrade in place.
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| The window stays on "Starting Lookout…" or shows an error | Check `lookout-desktop.log` next to `Lookout.exe`. The usual causes are Node.js not installed or port 4173 in use. |
+| "Node.js 20 or newer was not found" | Install Node.js LTS from nodejs.org, then reopen Lookout. |
+| Port 4173 is already in use | Another Lookout is probably running (check the tray). The app reuses it. Otherwise set `PORT`. |
+| No phone alerts | Send a test push from Settings. Check the view's bell is on and quiet hours aren't active. |
+| A role is classified wrongly | The rules are in `src/taxonomy.mjs`. Exclude it with a keyword, or hide the company. |
+
+## Privacy and limits
+
+- Runs entirely on your computer and binds to `127.0.0.1` by default. Your data never leaves it, except phone pushes to the ntfy server you choose.
+- Reads only public, unauthenticated feeds and APIs, and links back to every source. Wellfound, LinkedIn and YC's logged-in Work at a Startup block automated access, so they aren't scraped.
+- "Real time" means polling. Most sources are checked every 1–5 minutes, but a source can publish late, and nothing runs while the computer sleeps.
+- Skills, visa, years and pay are extracted from posting text with rules. They're accurate for most roles but not perfect, so read the posting before applying.
+- India coverage comes from InternScan, the India Tech Internships list, India funding news, and the boards of Indian startups as they're discovered.

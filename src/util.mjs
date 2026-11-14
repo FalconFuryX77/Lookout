@@ -1,15 +1,22 @@
 // Shared helpers: HTTP with conditional caching, HTML/XML text extraction, small utilities.
 
 const UA = 'Lookout/2.0 (personal job-search tracker; links back to sources)';
-const httpCache = new Map(); // url -> { etag, lastModified, body }
+// url -> { etag, lastModified, body? }. Validators are saved to disk so a restart can ask
+// "anything new?" instead of re-downloading everything; bodies are kept only for small responses.
+const httpCache = new Map();
+const KEEP_BODY_BYTES = 256 * 1024;
 
 export class HttpError extends Error {
   constructor(status, url) { super(`HTTP ${status}`); this.status = status; this.url = url; }
 }
+/** Thrown when the server says a feed hasn't changed and we didn't keep its body: nothing new to process. */
+export class NotModified extends Error {
+  constructor(url) { super('not modified'); this.notModified = true; this.url = url; }
+}
 
 /**
  * GET a URL as text. Uses ETag / Last-Modified so polling every minute is cheap for
- * sources that support it (GitHub raw, many RSS servers). Returns { body, changed }.
+ * sources that support it (GitHub raw, many RSS servers and ATS APIs). Returns { body, changed }.
  */
 export async function getText(url, { headers = {}, timeout = 20000, conditional = true } = {}) {
   const cached = conditional ? httpCache.get(url) : null;
@@ -17,12 +24,12 @@ export async function getText(url, { headers = {}, timeout = 20000, conditional 
   if (cached?.etag) h['if-none-match'] = cached.etag;
   if (cached?.lastModified) h['if-modified-since'] = cached.lastModified;
   const res = await fetch(url, { headers: h, signal: AbortSignal.timeout(timeout), redirect: 'follow' });
-  if (res.status === 304 && cached) return { body: cached.body, changed: false, url: res.url };
+  if (res.status === 304 && cached) { if (cached.body != null) return { body: cached.body, changed: false, url: res.url }; throw new NotModified(url); }
   if (!res.ok) throw new HttpError(res.status, url);
   const body = await res.text();
   if (conditional) {
     const etag = res.headers.get('etag'); const lastModified = res.headers.get('last-modified');
-    if (etag || lastModified) httpCache.set(url, { etag, lastModified, body });
+    if (etag || lastModified) httpCache.set(url, { etag, lastModified, body: body.length <= KEEP_BODY_BYTES ? body : null });
   }
   return { body, changed: true, url: res.url };
 }
@@ -30,6 +37,14 @@ export async function getText(url, { headers = {}, timeout = 20000, conditional 
 export async function getJson(url, opts = {}) {
   const r = await getText(url, { ...opts, headers: { accept: 'application/json', ...(opts.headers || {}) } });
   return { ...r, data: JSON.parse(r.body) };
+}
+
+/** Validators only (no bodies), for saving to disk. */
+export function exportHttpValidators(max = 6000) {
+  return Object.fromEntries([...httpCache].slice(-max).map(([u, v]) => [u, { etag: v.etag || undefined, lastModified: v.lastModified || undefined }]));
+}
+export function importHttpValidators(obj = {}) {
+  for (const [u, v] of Object.entries(obj || {})) if (!httpCache.has(u) && (v?.etag || v?.lastModified)) httpCache.set(u, { etag: v.etag, lastModified: v.lastModified, body: null });
 }
 
 const ENT = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", '#39': "'", rsquo: '’', lsquo: '‘', ldquo: '“', rdquo: '”', mdash: '—', ndash: '–', hellip: '…', bull: '•' };

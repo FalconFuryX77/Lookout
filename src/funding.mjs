@@ -64,7 +64,7 @@ export async function fetchRecentYc() {
   const out = [];
   for (const b of batches) {
     try {
-      const { data } = await getJson(`https://yc-oss.github.io/api/batches/${b}.json`, { timeout: 30000 });
+      const { data } = await getJson(`https://yc-oss.github.io/api/batches/${b}.json`, { timeout: 30000, conditional: false });
       for (const c of data) out.push({ name: c.name, slug: c.slug, website: c.website, oneLiner: c.one_liner, batch: c.batch, isHiring: c.isHiring, teamSize: c.team_size, industry: c.industry, locations: c.all_locations, status: c.status, url: c.url });
     } catch { /* batch may not exist yet */ }
   }
@@ -73,7 +73,7 @@ export async function fetchRecentYc() {
 
 /** Every YC company currently marked as hiring (any batch). */
 export async function fetchYcHiring() {
-  const { data } = await getJson('https://yc-oss.github.io/api/companies/hiring.json', { timeout: 60000 });
+  const { data } = await getJson('https://yc-oss.github.io/api/companies/hiring.json', { timeout: 60000, conditional: false });
   return data.filter(c => c.status !== 'Inactive' && c.status !== 'Acquired').map(c => ({ name: c.name, slug: c.slug, website: c.website, oneLiner: c.one_liner, batch: c.batch, teamSize: c.team_size, industry: c.industry, url: c.url }));
 }
 

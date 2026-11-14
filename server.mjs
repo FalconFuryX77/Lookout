@@ -15,7 +15,7 @@ import { discoverContacts, websiteFor, NOT_COMPANY_SITES } from './src/contacts.
 import { sendAlerts, testPush } from './src/notify.mjs';
 import { matches, effectiveTime, fundStageOf, normCo } from './public/filters.mjs';
 import { normCompany } from './src/dedupe.mjs';
-import { pool, domainOf, canonicalUrl } from './src/util.mjs';
+import { pool, domainOf, canonicalUrl, exportHttpValidators, importHttpValidators } from './src/util.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 4173);
@@ -25,6 +25,7 @@ await store.load();
 const S = store.state;
 store.state.settings.appUrl = `http://127.0.0.1:${PORT}`;
 S.boards ||= {}; S.dynamicSources ||= []; S.discoveryLog ||= []; S.blockedCompanies ||= [];
+importHttpValidators(S.httpValidators); // resume: ask feeds "anything new since last time?" instead of re-downloading
 for (const c of Object.values(S.companies)) if (c.contacts && c.contacts.v !== 2) c.contacts = null; // re-check with the cleaner v2 finder
 if (S.boardVerifyMigrated !== 1) { // drop boards that were guessed from company names (unverified), then re-detect from site links
   const reset = new Set();
@@ -126,7 +127,9 @@ async function runSource(src) {
   const st = S.sourceStatus[src.id] ||= { cursor: {}, runs: 0 };
   const started = Date.now(); const bootstrapping = !st.runs;
   try {
-    const postings = await src.run({ cursor: st.cursor ||= {} });
+    let postings;
+    try { postings = await src.run({ cursor: st.cursor ||= {} }); }
+    catch (e) { if (!e.notModified) throw e; postings = []; } // feed unchanged since last check
     const fresh = ingestAll(src.id, postings, bootstrapping);
     Object.assign(st, { ok: true, at: new Date().toISOString(), ms: Date.now() - started, fetched: postings.length, added: fresh.length, error: '' });
     if (postings.length) { st.dataRuns = (st.dataRuns || 0) + 1; st.seen = (st.seen || 0) + postings.length; st.unique = (st.unique || 0) + fresh.length; }
@@ -202,6 +205,7 @@ async function runBoards() {
         if (firstTime && posts.length) b.lastNewAt = posts.map(p => p.postedAt).filter(Boolean).sort().pop() || null;
         await handleNew(fresh, firstTime);
       } catch (e) {
+        if (e.notModified) { b.errors = 0; return; } // board unchanged since last poll: nothing to do
         errors++; b.errors = (b.errors || 0) + 1; b.lastError = e.message;
         if (e.status === 404 && b.errors >= 3 && !b.watched) { delete S.boards[b.key]; const c = Object.values(S.companies).find(x => x.ats && bkey(x.ats.provider, x.ats.board) === b.key); if (c) c.ats = null; }
       }
@@ -337,7 +341,7 @@ async function tick() {
 JOB_SOURCES.forEach((s, i) => { nextAt[s.id] = Date.now() + i * 1500; });
 nextAt.ats = Date.now() + 20e3; nextAt.discovery = Date.now() + 30e3; nextAt.lists = S.dynamicSources.some(d => !d.disabled && d.validated !== 2) ? Date.now() + 60e3 : S.sourceStatus.lists?.at ? Date.parse(S.sourceStatus.lists.at) + 6 * 36e5 : Date.now() + 90e3;
 setInterval(tick, 3000); tick();
-setInterval(() => { store.prune(); store.save().catch(e => log('save failed', e.message)); }, 15e3);
+setInterval(() => { store.prune(); S.httpValidators = exportHttpValidators(); store.save().catch(e => log('save failed', e.message)); }, 15e3);
 setInterval(() => { for (const res of sse) res.write(': ping\n\n'); }, 25e3);
 
 // ---------------------------------------------------------------- HTTP API

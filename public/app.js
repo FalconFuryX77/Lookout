@@ -32,6 +32,12 @@ const ICONS = {
   trash: '<path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
   building: '<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4M8 6h.01M16 6h.01M12 6h.01M12 10h.01M12 14h.01M16 10h.01M16 14h.01M8 10h.01M8 14h.01"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/>', ban: '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
+  list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
+  slides: '<path d="M2 5v14"/><rect width="12" height="18" x="6" y="3" rx="2"/><path d="M22 5v14"/>',
+  undo: '<path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  sort: '<path d="m21 16-4 4-4-4M17 20V4M3 8l4-4 4 4M7 4v16"/>',
+  eye: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
 };
 const ic = n => `<i data-i="${n}"><svg viewBox="0 0 24 24">${ICONS[n] || ''}</svg></i>`;
 function hydrateIcons(root = document) { for (const el of $$('i[data-i]:not(:has(svg))', root)) el.innerHTML = `<svg viewBox="0 0 24 24">${ICONS[el.dataset.i] || ''}</svg>`; }
@@ -68,14 +74,14 @@ function locShort(j) {
 function years(j) {
   if (j.yearsMin === null || j.yearsMin === undefined) return '';
   if (j.yearsMax !== null && j.yearsMax !== undefined && j.yearsMax !== j.yearsMin) return `${j.yearsMin}–${j.yearsMax} yrs`;
-  return j.yearsMin === 0 ? '0 yrs' : `${j.yearsMin}+ yrs`;
+  return j.yearsMin === 0 ? 'No experience needed' : `${j.yearsMin}+ yrs`;
 }
 // Show only pay we could parse, normalized ("$120–150K/yr"); Indian CTC strings are shown as written.
 const payStr = j => {
   if (j.pay) { const { min, max } = j.pay; return `$${min}${max && max !== min ? `–${max}` : ''}K/yr`; }
   return j.salary && /(lpa|lakh|crore|₹)/i.test(j.salary) ? j.salary.replace(/\s+/g, ' ').slice(0, 24) : '';
 };
-const visaShort = { 'Sponsors visa': ['Sponsors visa', 'm-good'], 'No sponsorship': ['No sponsorship', 'm-warn'], 'Citizens / clearance only': ['Citizens only', 'm-warn'] };
+const visaShort = { 'Sponsors visa': ['Sponsors visa', 'good'], 'No sponsorship': ['No sponsorship', 'warn'], 'Citizens / clearance only': ['Citizens only', 'warn'] };
 const FIELD_LABEL = { 'Core Engineering': 'Hardware & physical eng.' };
 const LEVEL_LABEL = { 'Senior+': 'Lead / Principal', Entry: 'Entry / new grad' };
 const fl$ = x => FIELD_LABEL[x] || x; const lv$ = x => LEVEL_LABEL[x] || x;
@@ -108,6 +114,7 @@ const S = {
   jobs: [], meta: null, view: 'jobs',
   filters: normalizeFilters(ls.get('lk2.filters', { age: '7d', fields: ['Software & IT'] })),
   activeView: ls.get('lk2.view', null), sort: ls.get('lk2.sort', 'new'),
+  mode: ls.get('lk2.mode', 'list'), // 'list' or 'slides'
   sel: null, limit: 150, pending: [], sigSeg: 'news', openSecs: new Set(ls.get('lk2.secs', ['age', 'field', 'exp', 'visa'])),
 };
 let blockedCache = { src: null, set: new Set() };
@@ -120,6 +127,7 @@ function setFilters(patch, { keepView = false } = {}) {
   S.filters = normalizeFilters({ ...S.filters, ...patch });
   if (!keepView) { const v = S.meta?.filterSets.find(x => x.id === S.activeView); if (v && JSON.stringify(normalizeFilters(v.filters)) !== JSON.stringify(S.filters)) { /* view modified */ } }
   ls.set('lk2.filters', S.filters); ls.set('lk2.view', S.activeView); S.limit = 150;
+  deck.top = deck.next = null; // new filters: slides start from the top again
   if ($('#q').value.trim() !== (S.filters.q || '') && document.activeElement !== $('#q')) $('#q').value = S.filters.q || ''; // keep box and chip in sync
   refreshJobs();
 }
@@ -158,93 +166,100 @@ function activeCount(f = S.filters) {
 const AGE_LABEL = { '15m': 'Last 15 min', '1h': 'Last hour', '6h': 'Last 6 hours', '24h': 'Last 24 hours', '3d': 'Last 3 days', '7d': 'Last 7 days', '30d': 'Last 30 days', all: 'Any time' };
 function chipList(f = S.filters) {
   const out = []; const join = a => a.length > 2 ? `${a.slice(0, 2).join(', ')} +${a.length - 2}` : a.join(', ');
-  const arr = (k, label) => f[k].length && out.push({ k: label, v: join(k === 'sources' ? f[k].map(srcName) : f[k]), clear: { [k]: [] } });
-  if (f.q) out.push({ k: 'Search', v: f.q, clear: { q: '' } });
-  if (f.age !== 'all') out.push({ k: 'Posted', v: AGE_LABEL[f.age], clear: { age: 'all' } });
-  if (f.fields.length) out.push({ k: 'Field', v: join(f.fields.map(fl$)), clear: { fields: [] } });
-  if (f.excludeFields.length) out.push({ k: 'Not', v: join(f.excludeFields.map(fl$)), neg: true, clear: { excludeFields: [] } });
-  arr('specialties', 'Role'); arr('types', 'Type'); if (f.levels.length) out.push({ k: 'Level', v: join(f.levels.map(lv$)), clear: { levels: [] } });
-  if (f.expMin !== null || f.expMax !== null) out.push({ k: 'Experience', v: `${f.expMin ?? 0}–${f.expMax === null ? '10+' : f.expMax} yrs${f.expUnknown ? '' : ', stated only'}`, clear: { expMin: null, expMax: null, expUnknown: true } });
-  arr('visa', 'Visa'); arr('workModes', 'Mode'); arr('countries', 'Location'); arr('degrees', 'Degree');
-  if (f.payMin !== null) out.push({ k: 'Pay', v: `≥ $${f.payMin}k/yr${f.payUnknown ? ' or unlisted' : ''}`, clear: { payMin: null, payUnknown: true } });
+  // k/v are the full description (tooltips, "save view" summary); short is what the chip shows.
+  const add = (id, k, v, clear, o = {}) => out.push({ id, k, v, clear, short: o.short ?? v, neg: !!o.neg });
+  const arr = (id, k, map = x => x) => { if (f[id].length) add(id, k, join(f[id].map(map)), { [id]: [] }); };
+  if (f.q) add('q', 'Search', f.q, { q: '' }, { short: `“${f.q}”` });
+  if (f.age !== 'all') add('age', 'Posted', AGE_LABEL[f.age], { age: 'all' });
+  arr('fields', 'Field', fl$);
+  if (f.excludeFields.length) add('excludeFields', 'Not', join(f.excludeFields.map(fl$)), { excludeFields: [] }, { neg: true, short: `No ${join(f.excludeFields.map(fl$))}` });
+  arr('specialties', 'Role'); arr('types', 'Type'); arr('levels', 'Level', lv$);
+  if (f.expMin !== null || f.expMax !== null) add('exp', 'Experience', `${f.expMin ?? 0}–${f.expMax === null ? '10+' : f.expMax} yrs${f.expUnknown ? '' : ', stated only'}`, { expMin: null, expMax: null, expUnknown: true });
+  arr('visa', 'Visa'); arr('workModes', 'Mode'); arr('countries', 'Location', c => c === 'Unknown' ? 'Not stated' : c); arr('degrees', 'Degree');
+  if (f.payMin !== null) add('pay', 'Pay', `≥ $${f.payMin}k/yr${f.payUnknown ? ' or unlisted' : ''}`, { payMin: null, payUnknown: true }, { short: `≥ $${f.payMin}k` });
   arr('terms', 'Term');
-  if (f.fundedOnly) out.push({ k: 'Company', v: 'Recently funded', clear: { fundedOnly: false } });
-  arr('fundStages', 'Stage'); arr('skills', f.skillsAll ? 'All skills' : 'Any skill'); arr('sources', 'Source');
-  if (f.multiSource) out.push({ k: 'Seen on', v: '2+ sources', clear: { multiSource: false } });
-  if (f.hasContact) out.push({ k: 'Contact', v: 'Has email', clear: { hasContact: false } });
-  if (f.hideAgencies) out.push({ k: 'Agencies', v: 'Hidden', neg: true, clear: { hideAgencies: false } });
-  if (f.hideTracked) out.push({ k: 'Tracked', v: 'Hidden', clear: { hideTracked: false } });
-  if (f.excludeQ.trim()) out.push({ k: 'Exclude', v: f.excludeQ, neg: true, clear: { excludeQ: '' } });
-  if (f.excludeCompanies.length) out.push({ k: 'Hidden cos', v: join(f.excludeCompanies), neg: true, clear: { excludeCompanies: [] } });
+  if (f.fundedOnly) add('fundedOnly', 'Company', 'Recently funded', { fundedOnly: false }, { short: 'Funded' });
+  arr('fundStages', 'Stage');
+  if (f.skills.length) add('skills', f.skillsAll ? 'All skills' : 'Any skill', join(f.skills), { skills: [] });
+  arr('sources', 'Source', srcName);
+  if (f.multiSource) add('multiSource', 'Seen on', '2+ sources', { multiSource: false });
+  if (f.hasContact) add('hasContact', 'Contact', 'Has email', { hasContact: false });
+  if (f.hideAgencies) add('hideAgencies', 'Agencies', 'Hidden', { hideAgencies: false }, { neg: true, short: 'No agencies' });
+  if (f.hideTracked) add('hideTracked', 'Tracked', 'Hidden', { hideTracked: false }, { short: 'Untracked only' });
+  if (f.excludeQ.trim()) add('excludeQ', 'Exclude', f.excludeQ, { excludeQ: '' }, { neg: true, short: `No “${f.excludeQ.trim().slice(0, 24)}”` });
+  if (f.excludeCompanies.length) add('excludeCompanies', 'Hidden companies', join(f.excludeCompanies), { excludeCompanies: [] }, { neg: true, short: `No ${join(f.excludeCompanies)}` });
   return out;
 }
 function renderChips() {
-  const chips = chipList();
-  $('#chips').innerHTML = chips.map((c, i) => `<span class="chip"><span class="k">${esc(c.k)}</span><span class="v ${c.neg ? 'neg' : ''}" title="${esc(c.v)}">${esc(c.v)}</span><button data-chip="${i}" aria-label="Remove">${ic('x')}</button></span>`).join('')
-    + `<button class="btn add-filter" id="addFilter">${ic('plus')}Filter</button>` + (chips.length ? `<button class="link clear" id="clearAll">Clear all</button>` : '');
+  const lit = new Set(QUICK.filter(q => q.on(S.filters)).map(q => q.key)); // already shown as a lit quick toggle
+  const all = chipList(); const chips = all.filter(c => !lit.has(c.id));
+  $('#chips').innerHTML = chips.map((c, i) => `<span class="chip ${c.neg ? 'neg' : ''}" title="${esc(c.k)}: ${esc(c.v)}"><span class="v">${esc(c.short)}</span><button data-chip="${i}" aria-label="Remove ${esc(c.k)} filter">${ic('x')}</button></span>`).join('')
+    + (all.length ? '<button class="link clear" id="clearAll">Clear</button>' : '');
   $$('[data-chip]').forEach(b => b.onclick = () => { const c = chips[+b.dataset.chip].clear; if ('q' in c) $('#q').value = ''; setFilters(c); });
-  $('#addFilter').onclick = openSheet; $('#clearAll')?.addEventListener('click', () => { S.activeView = null; setFilters({ ...EMPTY_FILTERS }); });
-  const n = activeCount(); $('#fCount').textContent = n || '';
+  $('#clearAll')?.addEventListener('click', () => { S.activeView = null; $('#q').value = ''; setFilters({ ...EMPTY_FILTERS }); });
+  $('#fCount').textContent = activeCount() || '';
   const v = S.meta?.filterSets.find(x => x.id === S.activeView);
-  $('#viewTitle').innerHTML = v ? `${esc(v.name)}${JSON.stringify(normalizeFilters(v.filters)) !== JSON.stringify(S.filters) ? ' <span class="muted" style="font-weight:400">· edited</span>' : ''}` : 'Jobs';
+  $('#viewTitle').textContent = v ? v.name : 'Jobs';
 }
 // Toggling a time quick-filter off restores whatever window you had before.
 function ageToggle(f, v) { if (f.age === v) return { age: S.prevAge && S.prevAge !== v ? S.prevAge : 'all' }; S.prevAge = f.age; return { age: v }; }
 const QUICK = [
-  { id: 'hour', label: 'Last hour', on: f => f.age === '1h', toggle: f => ageToggle(f, '1h'), reset: { age: 'all' }, test: j => isHot(j) },
-  { id: 'today', label: 'Today', on: f => f.age === '24h', toggle: f => ageToggle(f, '24h'), reset: { age: 'all' }, test: j => { const { t, kind } = freshness(j); return kind !== 'unknown' && Date.now() - t < 864e5; } },
-  { id: 'funded', label: 'Funded startups', on: f => f.fundedOnly, toggle: f => ({ fundedOnly: !f.fundedOnly }), reset: { fundedOnly: false }, test: j => j.funded },
-  { id: 'visa', label: 'Sponsors visa', on: f => f.visa.length === 1 && f.visa[0] === 'Sponsors visa', toggle: f => ({ visa: f.visa[0] === 'Sponsors visa' && f.visa.length === 1 ? [] : ['Sponsors visa'] }), reset: { visa: [] }, test: j => j.visa === 'Sponsors visa' },
-  { id: 'remote', label: 'Remote', on: f => f.workModes.length === 1 && f.workModes[0] === 'Remote', toggle: f => ({ workModes: f.workModes[0] === 'Remote' && f.workModes.length === 1 ? [] : ['Remote'] }), reset: { workModes: [] }, test: j => j.workMode === 'Remote' },
-  { id: 'contact', label: 'Has email', on: f => f.hasContact, toggle: f => ({ hasContact: !f.hasContact }), reset: { hasContact: false }, test: j => j.emails?.length || j.contactCount },
+  { id: 'hour', key: 'age', label: 'Last hour', on: f => f.age === '1h', toggle: f => ageToggle(f, '1h'), test: j => isHot(j) },
+  { id: 'today', key: 'age', label: 'Today', on: f => f.age === '24h', toggle: f => ageToggle(f, '24h'), test: j => { const { t, kind } = freshness(j); return kind !== 'unknown' && Date.now() - t < 864e5; } },
+  { id: 'funded', key: 'fundedOnly', label: 'Funded', on: f => f.fundedOnly, toggle: f => ({ fundedOnly: !f.fundedOnly }), test: j => j.funded },
+  { id: 'visa', key: 'visa', label: 'Sponsors visa', on: f => f.visa.length === 1 && f.visa[0] === 'Sponsors visa', toggle: f => ({ visa: f.visa[0] === 'Sponsors visa' && f.visa.length === 1 ? [] : ['Sponsors visa'] }), test: j => j.visa === 'Sponsors visa' },
+  { id: 'remote', key: 'workModes', label: 'Remote', on: f => f.workModes.length === 1 && f.workModes[0] === 'Remote', toggle: f => ({ workModes: f.workModes[0] === 'Remote' && f.workModes.length === 1 ? [] : ['Remote'] }), test: j => j.workMode === 'Remote' },
+  { id: 'contact', key: 'hasContact', label: 'Has email', on: f => f.hasContact, toggle: f => ({ hasContact: !f.hasContact }), test: j => j.emails?.length || j.contactCount },
 ];
 function renderQuick() {
-  const c = ctx();
   if (!$('#quick').children.length) {
     $('#quick').innerHTML = QUICK.map(q => `<button class="qs" data-q="${q.id}"><span>${q.label}</span><b data-v="0">0</b></button>`).join('');
     $$('.qs').forEach(b => b.onclick = () => { const q = QUICK.find(x => x.id === b.dataset.q); setFilters(q.toggle(S.filters)); });
   }
-  const QKEY = { hour: 'age', today: 'age', funded: 'fundedOnly', visa: 'visa', remote: 'workModes', contact: 'hasContact' };
   const { matched, nearMiss } = ev();
   for (const q of QUICK) {
-    let n = 0; for (const list of [matched, nearMiss.get(QKEY[q.id]) || []]) for (const j of list) if (q.test(j)) n++;
+    let n = 0; for (const l of [matched, nearMiss.get(q.key) || []]) for (const j of l) if (q.test(j)) n++;
     const b = $(`.qs[data-q="${q.id}"]`); b.classList.toggle('on', q.on(S.filters)); tickTo(b.querySelector('b'), n);
   }
 }
 
 // ───────────────────────────────────────────── list
+// Small facts as pills. Rows show the first three (CSS); slides show them all.
+function pillsFor(j, where = 'row') {
+  const p = {};
+  if (j.funded) { const l = j.funding?.label || 'Funded'; p.fund = `<span class="pill ${/^YC\b/.test(l) ? '' : 'live'}">${esc(l)}</span>`; } // fresh rounds get the accent; a YC batch is neutral
+  const v = visaShort[j.visa]; if (v) p.visa = `<span class="pill ${v[1]}">${v[0]}</span>`;
+  const ps = payStr(j); if (ps) p.pay = `<span class="pill">${esc(ps)}</span>`;
+  const y = years(j); if (y && !(j.type === 'Internship' && j.yearsMin === 0)) p.yrs = `<span class="pill">${esc(y)}</span>`;
+  if (j.workMode === 'Remote' || j.workMode === 'Hybrid') p.mode = `<span class="pill">${esc(j.workMode)}</span>`;
+  if (where === 'slide') p.type = `<span class="pill">${esc(j.type === 'Internship' ? 'Internship' : j.level === 'Entry' ? 'Entry level' : j.type)}</span>`;
+  const order = where === 'slide' ? ['type', 'yrs', 'pay', 'mode', 'visa', 'fund'] : ['fund', 'visa', 'pay', 'yrs', 'mode'];
+  return order.map(k => p[k]).filter(Boolean).join('');
+}
 function rowHtml(j, { arrive = false } = {}) {
-  const tr = S.meta?.tracking?.[j.id];
-  const meta = [];
-  if (j.funded) { const l = j.funding?.label || 'Funded'; meta.push(`<span class="${/^YC\b/.test(l) ? 'm-yc' : 'm-live'}">${esc(l)}</span>`); } // fresh rounds get the accent; YC batch is neutral
-  const y = years(j); if (y && !(j.type === 'Internship' && j.yearsMin === 0)) meta.push(esc(y));
-  const v = visaShort[j.visa]; if (v) meta.push(`<span class="${v[1]}">${v[0]}</span>`); // visa before pay: it decides eligibility
-  { const ps = payStr(j); if (ps) meta.push(esc(ps)); }
-  if (j.workMode === 'Remote' || j.workMode === 'Hybrid') meta.push(esc(j.workMode));
-  if (j.emails?.length || j.contactCount) meta.push('<span title="Has a contact email">✉</span>');
-  const flag = tr?.status ? `<span class="r-flag">${esc(statusLabel(tr.status))}</span>` : j.type === 'Internship' ? '<span class="r-flag">Intern</span>' : '';
+  const tr = S.meta?.tracking?.[j.id]; const pills = pillsFor(j); const loc = locShort(j);
   return `<div class="row ${S.sel === j.id ? 'sel' : ''} ${isHot(j) ? 'hot' : ''} ${arrive ? 'arrive' : ''}" data-id="${j.id}" role="option">
     ${logo(j.company, j.domain)}
     <div class="r-main">
-      <div class="r-l1"><span class="r-title">${esc(j.title)}</span>${flag}</div>
-      <div class="r-l2"><span class="r-co">${esc(j.company)}</span><span class="r-loc">${esc(locShort(j))}</span>${meta.length ? `<span class="r-meta">${meta.join('<i class="sep">·</i>')}</span>` : ''}</div>
+      <div class="r-title">${esc(j.title)}</div>
+      <div class="r-sub"><span class="r-co">${esc(j.company)}</span>${loc ? `<span class="r-loc">${esc(loc)}</span>` : ''}</div>
+      ${pills ? `<div class="r-pills">${pills}</div>` : ''}
     </div>
-    <div class="r-right"><span class="t-time ${freshness(j).kind === 'exact' ? '' : 'undated'}">${when(j)}</span>${j.sources.length > 1 ? `<span class="srcn" title="Seen on ${j.sources.length} sources">${ic('layers')}${j.sources.length}</span>` : ''}</div></div>`;
+    <div class="r-right"><span class="t-time">${when(j)}</span>${tr?.status ? `<span class="r-flag">${esc(statusLabel(tr.status))}</span>` : ''}</div></div>`;
 }
 let current = [];
 function renderList(arriveIds = new Set()) {
   evCache = null; current = filtered();
-  const hot = current.filter(isHot).length; const total = S.jobs.reduce((n, j) => n + j.sources.length, 0);
-  $('#resultMeta').innerHTML = `<b>${fmt(current.length)}</b> roles${hot ? ` · <span style="color:var(--live)">${hot} in the last hour</span>` : ''} · ${fmt(total)} listings merged`
-    + (S.sort === 'best' && !profile().skills?.length ? ` · <a class="link" href="#settings">add your skills to rank by fit</a>` : '');
+  $('#viewCount').textContent = fmt(current.length);
   $('#list').innerHTML = current.length
-    ? current.slice(0, S.limit).map(j => rowHtml(j, { arrive: arriveIds.has(j.id) })).join('') + (current.length > S.limit ? `<button class="btn more" id="more">Show ${Math.min(300, current.length - S.limit)} more</button>` : '')
-    : `<div class="empty"><div class="empty-in"><img src="/logo.svg" width="36" alt=""><h3>Nothing matches yet</h3><p>Widen the time window or drop a filter. New roles stream in as they’re found.</p>${chipList().length ? '<button class="btn" id="emptyClear">Clear filters</button>' : ''}</div></div>`;
+    ? current.slice(0, S.limit).map(j => rowHtml(j, { arrive: arriveIds.has(j.id) })).join('') + (current.length > S.limit ? '<button class="btn more" id="more">Show more</button>' : '')
+    : `<div class="empty"><div class="empty-in"><img src="/logo.svg" width="44" alt=""><h3>Nothing matches</h3>${chipList().length ? '<button class="btn" id="emptyClear">Clear filters</button>' : '<p>New roles show up here as they’re found.</p>'}</div></div>`;
   hydrateIcons($('#list'));
   $('#more')?.addEventListener('click', () => { S.limit += 300; renderList(); });
-  $('#emptyClear')?.addEventListener('click', () => setFilters({ ...EMPTY_FILTERS }));
+  $('#emptyClear')?.addEventListener('click', () => { S.activeView = null; $('#q').value = ''; setFilters({ ...EMPTY_FILTERS }); });
   $('#nJobs').textContent = fmt(S.jobs.length);
   S.pending = []; updatePill();
+  renderDeck();
 }
 const list = $('#list');
 list.addEventListener('click', e => { const r = e.target.closest('.row'); if (r) select(r.dataset.id, true); });
@@ -254,8 +269,11 @@ function updatePill() { const n = S.pending.length; const p = $('#newPill'); p.c
 $('#newPill').onclick = () => { const ids = new Set(S.pending); list.scrollTop = 0; renderList(ids); };
 
 // sort + search
-function renderSort() { $$('#sort button').forEach(b => b.classList.toggle('on', b.dataset.v === S.sort)); }
-$$('#sort button').forEach(b => b.onclick = () => { S.sort = b.dataset.v; ls.set('lk2.sort', S.sort); renderSort(); renderList(); });
+function renderSort() { $('#sortBtn').innerHTML = `${ic('sort')}<span>${S.sort === 'best' ? 'Best match' : 'Newest'}</span>`; $('#sortBtn').title = 'Switch between newest and best match'; }
+$('#sortBtn').onclick = () => {
+  S.sort = S.sort === 'new' ? 'best' : 'new'; ls.set('lk2.sort', S.sort); deck.top = deck.next = null; renderSort(); renderList();
+  if (S.sort === 'best' && !profile().skills?.length) toast('Add your skills to rank by fit', { action: ['Add skills', () => { location.hash = '#settings'; }] });
+};
 $('#q').value = S.filters.q || '';
 $('#q').addEventListener('input', debounce(e => setFilters({ q: e.target.value.trim() }), 140));
 $('#q').addEventListener('search', e => setFilters({ q: e.target.value.trim() })); // native clear (×) and Esc
@@ -266,8 +284,7 @@ const STATUSES = [['saved', 'Saved'], ['applied', 'Applied'], ['contacted', 'Con
 const statusLabel = s => (STATUSES.find(x => x[0] === s) || [s, s === 'hidden' ? 'Hidden' : s])[1];
 function detailEmpty() {
   $('#detail').classList.remove('open');
-  $('#detail').innerHTML = `<div class="d-empty"><div><img src="/logo.svg" width="40" alt="" style="opacity:.6"><p style="margin:12px 0 0">Select a role to see requirements, pay, visa and who to contact.</p>
-    <div class="keys"><span><kbd>J</kbd><kbd>K</kbd> move</span><span><kbd>Enter</kbd> apply</span><span><kbd>E</kbd> email</span><span><kbd>S</kbd> save</span><span><kbd>X</kbd> hide</span></div></div></div>`;
+  $('#detail').innerHTML = '<div class="d-empty"><div><img src="/logo.svg" width="48" alt=""><p>Pick a role</p></div></div>';
 }
 async function select(id, fromClick = false) {
   S.sel = id;
@@ -279,50 +296,59 @@ async function select(id, fromClick = false) {
   if (S.sel !== id) return;
   renderDetail(j);
 }
+const saveBtnHtml = saved => `<span class="bm ${saved ? 'on' : ''}">${ic('bookmark')}</span>${saved ? 'Saved' : 'Save'}`;
+// Only facts the posting actually states; no "Not stated" filler.
+function factsFor(j) {
+  const out = []; const add = (k, v, cls = '') => { if (v) out.push(`<div class="fact"><span>${k}</span><b class="${cls}">${v}</b></div>`); };
+  const fr = freshness(j);
+  if (fr.kind === 'exact') add('Posted', esc(agoLong(fr.t)), isHot(j) ? 'live' : '');
+  else if (fr.kind === 'date') add('Posted', esc(dayLabel(j.postedAt)));
+  else if (fr.kind === 'seen') add('First seen', esc(agoLong(Date.parse(j.firstSeen))));
+  add('Experience', j.yearsMin === 0 && !j.yearsMax ? 'None needed' : esc(years(j)));
+  add('Pay', esc(payStr(j)));
+  if (j.visa && j.visa !== 'Not stated') add('Visa', esc(j.visa), j.visa === 'Sponsors visa' ? 'good' : 'warn');
+  if (j.workMode && j.workMode !== 'Not stated') add('Work mode', esc(j.workMode));
+  add('Type', esc(j.type === 'Internship' ? 'Internship' : `${j.type}${j.level && j.level !== 'Mid' ? ` · ${lv$(j.level)}` : ''}`));
+  if (j.specialty && j.specialty !== 'Other') add('Role', esc(j.specialty));
+  add('Degree', esc((j.degrees || []).join(', ')));
+  add('Term', esc((j.terms || []).join(', ')));
+  if (j.funding) add('Funding', (j.funding.url ? `<a href="${esc(j.funding.url)}" target="_blank" rel="noreferrer">${esc(j.funding.label)}</a>` : esc(j.funding.label)) + (j.funding.at ? ` · ${esc(agoLong(Date.parse(j.funding.at)))}` : ''), 'live');
+  if (j.teamSize) add('Team', `${fmt(j.teamSize)} people`);
+  return out.join('');
+}
 function renderDetail(j) {
   const d = $('#detail'); const tr = S.meta.tracking[j.id] || {}; const p = profile();
   const mine = new Set((p.skills || []).map(s => s.toLowerCase()));
-  const groups = {}; for (const s of j.skills) (groups[s.group] ||= []).push(s.name);
-  const apply = j.applyUrl || j.url; const pct = skillMatch(j, p.skills || []);
-  const pay = j.pay ? `≈ $${j.pay.min}${j.pay.max !== j.pay.min ? `–${j.pay.max}` : ''}k/yr` : '';
-  const visaCls = j.visa === 'Sponsors visa' ? 'good' : j.visa === 'Not stated' ? '' : 'warn';
+  const apply = j.applyUrl || j.url; const reqs = j.requirements || [];
+  const loc = j.location || (j.country && j.country !== 'Unknown' ? j.country : '');
   d.innerHTML = `
   <div class="d-head">
-    <div class="d-top">${logo(j.company, j.domain, 'logo lg')}<div style="flex:1;min-width:0"><h2 class="d-title">${esc(j.title)}</h2>
-      <div class="d-co"><span>${esc(j.company)}</span>${j.funding ? `<span class="sep">·</span><span class="d-fund">${j.funding.url ? `<a href="${esc(j.funding.url)}" target="_blank" rel="noreferrer">${esc(j.funding.label)}</a>` : esc(j.funding.label)}${j.funding.at ? ` · ${ago(Date.parse(j.funding.at))} ago` : ''}</span>` : ''}${j.teamSize ? `<span class="sep">·</span><span>${j.teamSize} people</span>` : ''}<span class="sep">·</span><span>${esc(j.location || j.country)}</span>${j.domain ? `<span class="sep">·</span><a href="https://${esc(j.domain)}" target="_blank" rel="noreferrer">${esc(j.domain)}</a>` : ''}</div></div>
-      <button class="icon-btn d-close" id="dClose" title="Close (Esc)">${ic('x')}</button></div>
+    <div class="d-top">${logo(j.company, j.domain, 'logo lg')}
+      <div class="d-id"><div class="d-co">${j.domain ? `<a href="https://${esc(j.domain)}" target="_blank" rel="noreferrer">${esc(j.company)}</a>` : esc(j.company)}</div>${loc ? `<div class="d-loc">${esc(loc)}</div>` : ''}</div>
+      <button class="icon-btn" id="dClose" title="Close (Esc)">${ic('x')}</button></div>
+    <h2 class="d-title">${esc(j.title)}</h2>
     <div class="d-actions">
-      <a class="btn primary" href="${esc(apply)}" target="_blank" rel="noreferrer">Apply ${ic('external')}<kbd>↵</kbd></a>
-      <button class="btn" id="dDraft">${ic('mail')}Draft email<kbd>E</kbd></button>
-      <button class="btn" id="dSave"><span class="bm ${tr.status === 'saved' ? 'on' : ''}">${ic('bookmark')}</span>${tr.status === 'saved' ? 'Saved' : 'Save'}<kbd>S</kbd></button>
-      <button class="btn ghost" id="dHide">${ic('eyeoff')}${tr.hidden ? 'Unhide' : 'Hide'}</button>
-      <button class="btn ghost" id="dHideCo">${ic('ban')}Hide company</button>
+      <a class="btn primary lg" href="${esc(apply)}" target="_blank" rel="noreferrer" title="Open the listing (Enter)">Apply ${ic('external')}</a>
+      <button class="btn lg" id="dSave" title="Save (S)">${saveBtnHtml(tr.status === 'saved')}</button>
+      <button class="btn lg" id="dDraft" title="Draft an outreach email (E)">${ic('mail')}Email</button>
+      <span class="spacer"></span>
+      <button class="icon-btn" id="dHide" title="${tr.hidden ? 'Unhide this role' : 'Hide this role (X)'}">${ic(tr.hidden ? 'eye' : 'eyeoff')}</button>
+      <button class="icon-btn" id="dHideCo" title="Block ${esc(j.company)}">${ic('ban')}</button>
     </div>
   </div>
   <div class="d-body">
-    <div class="facts">
-      <div class="fact"><span>Posted</span><b class="${isHot(j) ? 'live' : ''}">${esc(whenLong(j))}</b></div>
-      <div class="fact"><span>Experience</span><b>${j.yearsMin === 0 ? 'None required' : years(j) || 'Not stated'}</b></div>
-      <div class="fact"><span>Visa</span><b class="${visaCls}">${esc(j.visa || 'Not stated')}</b></div>
-      <div class="fact"><span>Work mode</span><b>${esc(j.workMode || 'Not stated')}</b></div>
-      <div class="fact"><span>Type · level</span><b>${esc(j.type)} · ${esc(j.level)}</b></div>
-      <div class="fact"><span>Role</span><b>${esc(j.specialty)}</b></div>
-      <div class="fact"><span>Pay</span><b title="${esc(j.salary || '')}">${esc(payStr(j) || 'Not listed')}</b></div>
-      <div class="fact"><span>Degree</span><b>${esc(j.degrees?.join(', ') || 'Not stated')}</b></div>
-      ${j.terms?.length ? `<div class="fact"><span>Term</span><b>${esc(j.terms.join(', '))}</b></div>` : ''}
-    </div>
-    ${p.skills?.length ? `<div class="sec"><div class="match"><div class="ring" style="--p:${pct}"><span>${pct}%</span></div><p><b>Skill match.</b> You list ${j.skills.filter(s => mine.has(s.name.toLowerCase())).length} of the ${j.skills.length} skills this posting mentions.</p></div></div>` : ''}
-    ${j.requirements?.length ? `<div class="sec"><div class="sec-h"><h4>Requirements</h4></div><ul class="reqs">${j.requirements.map(r => `<li>${esc(r)}</li>`).join('')}</ul></div>` : ''}
-    <div class="sec"><div class="sec-h"><h4>Skills mentioned · ${j.skills.length}</h4></div>${j.skills.length ? `<div class="skills">${Object.entries(groups).map(([g, l]) => `<div class="sk-row"><em>${esc(g)}</em><div>${l.map(n => `<span class="sk ${mine.has(n.toLowerCase()) ? 'hit' : ''}">${esc(n)}</span>`).join('')}</div></div>`).join('')}</div>` : '<p class="muted">No recognised skill terms. Read the full posting.</p>'}</div>
-    <div class="sec" id="cSec"><div class="sec-h"><h4>Who to contact</h4><button class="link small" id="cRe">Re-check</button></div><div id="contacts"><span class="spin"></span> <span class="muted small">Checking the post, company site, GitHub and YC profile…</span></div></div>
-    <div class="sec"><div class="sec-h"><h4>Track</h4></div><div class="status-row">${STATUSES.map(([v, l]) => `<button data-st="${v}" class="${tr.status === v ? 'on' : ''}">${l}</button>`).join('')}</div>
-      <textarea class="note" id="note" rows="2" placeholder="Notes: who you emailed, when to follow up">${esc(tr.note || '')}</textarea></div>
-    <div class="sec"><div class="sec-h"><h4>Seen on ${j.sources.length} source${j.sources.length > 1 ? 's' : ''}</h4></div><div class="srcs">${j.sources.map(s => `<a href="${esc(s.url)}" target="_blank" rel="noreferrer">${esc(srcName(s.source))}<span>${s.postedAt ? `posted ${agoLong(Date.parse(s.postedAt))}` : 'no date'} · seen ${agoLong(Date.parse(s.seenAt))}</span></a>`).join('')}</div></div>
-    ${j.description ? `<div class="sec"><div class="sec-h"><h4>Full posting</h4><button class="link small" id="descMore">Expand</button></div><div class="desc clamp" id="desc">${esc(j.description)}</div></div>` : ''}
+    <div class="facts">${factsFor(j)}</div>
+    ${reqs.length ? `<section class="sec"><h4>Requirements</h4><ul class="reqs ${reqs.length > 6 ? 'clamped' : ''}" id="reqs">${reqs.map(r => `<li>${esc(r)}</li>`).join('')}</ul>${reqs.length > 6 ? `<button class="link small" id="reqMore">Show all ${reqs.length}</button>` : ''}</section>` : ''}
+    ${j.skills.length ? `<section class="sec"><h4>Skills${p.skills?.length ? `<span class="match-pct">${skillMatch(j, p.skills)}% match</span>` : ''}</h4><div class="chipset">${j.skills.map(s => `<span class="sk ${mine.has(s.name.toLowerCase()) ? 'hit' : ''}">${esc(s.name)}</span>`).join('')}</div></section>` : ''}
+    <section class="sec"><h4>Contact<button class="icon-btn sm" id="cRe" title="Check again">${ic('refresh')}</button></h4><div id="contacts"><span class="spin"></span></div></section>
+    <section class="sec"><h4>Status</h4><div class="status-row">${STATUSES.map(([v, l]) => `<button data-st="${v}" class="${tr.status === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <textarea class="note" id="note" rows="2" placeholder="Notes">${esc(tr.note || '')}</textarea></section>
+    <details class="fold"><summary>Seen on ${j.sources.length} source${j.sources.length > 1 ? 's' : ''}</summary><div class="srcs">${j.sources.map(s => `<a href="${esc(s.url)}" target="_blank" rel="noreferrer">${esc(srcName(s.source))}<span>${s.postedAt ? `posted ${agoLong(Date.parse(s.postedAt))}` : `seen ${agoLong(Date.parse(s.seenAt))}`}</span></a>`).join('')}</div></details>
+    ${j.description ? `<details class="fold"><summary>Full posting</summary><div class="desc">${esc(j.description)}</div></details>` : ''}
   </div>`;
   $('#dClose').onclick = () => { S.sel = null; $$('.row.sel', list).forEach(r => r.classList.remove('sel')); detailEmpty(); };
-  $('#descMore')?.addEventListener('click', e => { const el = $('#desc'); el.classList.toggle('clamp'); e.target.textContent = el.classList.contains('clamp') ? 'Expand' : 'Collapse'; });
-  $('#dSave').onclick = () => track(j.id, tr.status === 'saved' ? '' : 'saved');
+  $('#reqMore')?.addEventListener('click', e => { const c = $('#reqs').classList.toggle('clamped'); e.target.textContent = c ? `Show all ${reqs.length}` : 'Show fewer'; });
+  $('#dSave').onclick = () => track(j.id, S.meta.tracking[j.id]?.status === 'saved' ? '' : 'saved');
   $('#dHide').onclick = () => tr.hidden ? setHidden(j.id, false).then(() => { toast('Role restored'); renderList(); select(j.id); }) : hideJob(j.id);
   $('#dHideCo').onclick = () => blockCompany(j.company);
   $$('[data-st]', d).forEach(b => b.onclick = () => track(j.id, b.classList.contains('on') ? '' : b.dataset.st));
@@ -337,16 +363,17 @@ async function loadContacts(j, refresh = false) {
   try {
     const c = await api(`/api/contacts/${encodeURIComponent(j.id)}${refresh ? '?refresh=1' : ''}`);
     if (S.sel !== j.id) return c;
+    const copyBtn = e => `<button class="icon-btn sm" data-copy="${esc(e)}" title="Copy">${ic('copy')}</button>`;
     const out = [];
-    for (const e of c.emails) out.push(`<div class="contact"><div class="c-main"><div class="em">${esc(e.email)}</div><div class="via">${esc(e.role)} · <a href="${esc(e.url)}" target="_blank" rel="noreferrer">${esc(e.source)}</a></div></div><span class="tag ${e.confidence === 'published' ? 'good' : ''}">${e.confidence === 'published' ? 'Published' : 'Other domain'}</span><button class="icon-btn sm" data-copy="${esc(e.email)}" title="Copy">${ic('copy')}</button></div>`);
-    if (c.founders?.length) out.push(`<div style="margin:12px 0 2px" class="muted small">Founders · YC profile</div>` + c.founders.map(f => `<div class="person">${logo(f.name, '', 'logo')}<div><div>${esc(f.name)} <small>${esc(f.role || '')}</small></div><div>${f.linkedin ? `<a href="${esc(f.linkedin)}" target="_blank" rel="noreferrer">LinkedIn</a>` : ''}${f.x ? `<a href="${esc(f.x)}" target="_blank" rel="noreferrer">X</a>` : ''}</div></div></div>`).join(''));
-    for (const g of c.guesses || []) out.push(`<div class="contact guess"><div class="c-main"><div class="em">${esc(g.email)}</div><div class="via">${esc(g.name)} · pattern guess${g.alt?.length ? ` · also ${g.alt.map(esc).join(', ')}` : ''}</div></div><span class="tag warn">Unverified</span><button class="icon-btn sm" data-copy="${esc(g.email)}" title="Copy">${ic('copy')}</button></div>`);
+    for (const e of c.emails) out.push(`<div class="contact"><div class="c-main"><div class="em">${esc(e.email)}</div><div class="via">${esc(e.role)} · <a href="${esc(e.url)}" target="_blank" rel="noreferrer">${esc(e.source)}</a></div></div>${e.confidence === 'published' ? '' : '<span class="tag">Other domain</span>'}${copyBtn(e.email)}</div>`);
+    if (c.founders?.length) out.push('<div class="sub-h">Founders</div>' + c.founders.map(f => `<div class="person">${logo(f.name, '')}<div><div>${esc(f.name)} <small>${esc(f.role || '')}</small></div><div>${f.linkedin ? `<a href="${esc(f.linkedin)}" target="_blank" rel="noreferrer">LinkedIn</a>` : ''}${f.x ? `<a href="${esc(f.x)}" target="_blank" rel="noreferrer">X</a>` : ''}</div></div></div>`).join(''));
+    for (const g of c.guesses || []) out.push(`<div class="contact guess"><div class="c-main"><div class="em">${esc(g.email)}</div><div class="via">${esc(g.name)}${g.alt?.length ? ` · or ${g.alt.map(esc).join(', ')}` : ''}</div></div><span class="tag warn" title="A common address pattern, not verified">Guess</span>${copyBtn(g.email)}</div>`);
     const soc = Object.entries(c.socials || {}).map(([k, u]) => `<a class="link" href="${esc(u)}" target="_blank" rel="noreferrer">${esc({ linkedin: 'LinkedIn', x: 'X', github: 'GitHub', instagram: 'Instagram' }[k] || k)}</a>`).join(' · ');
-    $('#contacts').innerHTML = (out.join('') || `<p class="muted" style="margin:0">No published email${c.domain ? ` on ${esc(c.domain)}` : ''}. Apply through the listing or reach the founders directly.</p>`)
-      + (soc || c.pagesChecked?.length ? `<p class="fine">${soc ? soc + ' · ' : ''}${c.pagesChecked?.length ? `checked ${c.pagesChecked.length} pages ${agoLong(Date.parse(c.checkedAt))}` : ''}</p>` : '');
-    $$('[data-copy]', $('#contacts')).forEach(b => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copy); toast(`Copied ${b.dataset.copy}`); });
+    $('#contacts').innerHTML = (out.join('') || '<p class="muted" style="margin:0">No published email found.</p>') + (soc ? `<p class="fine">${soc}</p>` : '');
+    hydrateIcons($('#contacts'));
+    $$('[data-copy]', $('#contacts')).forEach(b => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copy); toast(`Copied ${b.dataset.copy}`, { ms: 2500 }); });
     return c;
-  } catch (e) { if (S.sel === j.id) $('#contacts').innerHTML = `<span class="muted small">Couldn’t check contacts: ${esc(e.message)}</span>`; return null; }
+  } catch (e) { if (S.sel === j.id) $('#contacts').innerHTML = `<span class="muted small">Couldn’t check: ${esc(e.message)}</span>`; return null; }
 }
 function draft(j, c) {
   const p = profile();
@@ -376,11 +403,12 @@ async function track(id, status, note, quiet) {
   const j = S.jobs.find(x => x.id === id);
   const row = $(`.row[data-id="${id}"]`, list); if (row && j) row.outerHTML = rowHtml(j);
   hydrateIcons(list);
-  if (S.sel === id && S.detailJob) { $$('[data-st]').forEach(b => b.classList.toggle('on', b.dataset.st === status)); const sb = $('#dSave'); if (sb) sb.innerHTML = `<span class="bm ${status === 'saved' ? 'on' : ''}">${ic('bookmark')}</span>${status === 'saved' ? 'Saved' : 'Save'}<kbd>S</kbd>`; }
+  if (S.sel === id && S.detailJob) { $$('[data-st]').forEach(b => b.classList.toggle('on', b.dataset.st === status)); const sb = $('#dSave'); if (sb) sb.innerHTML = saveBtnHtml(status === 'saved'); }
   renderNav(); if (S.view === 'pipeline') renderPipeline();
+  if (S.mode === 'slides' && !deck.busy) renderDeck(); // tracked from Details: it leaves the deck
   if (!quiet && status && status !== 'hidden') toast(`${statusLabel(status)}: ${j?.title || ''}`, { undo: () => track(id, prev?.status || '', prev?.note, true) });
 }
-function selectNextAfter(idx) { renderList(); const next = current[Math.min(idx, current.length - 1)]; if (next) select(next.id); else { S.sel = null; detailEmpty(); } }
+function selectNextAfter(idx) { renderList(); if (S.mode === 'slides') { S.sel = null; detailEmpty(); return; } const next = current[Math.min(idx, current.length - 1)]; if (next) select(next.id); else { S.sel = null; detailEmpty(); } }
 function hideJob(id) {
   const idx = current.findIndex(j => j.id === id);
   setHidden(id, true).then(() => { selectNextAfter(idx); toast('Role hidden', { undo: () => setHidden(id, false).then(() => renderList()) }); });
@@ -408,31 +436,31 @@ function renderSheet() {
   const searches = Object.fromEntries($$('[data-search]', $('#sheetBody')).map(i => [i.dataset.search, i.value]));
   const ae = document.activeElement; const focusKey = ae && $('#sheetBody').contains(ae) ? (ae.dataset.search ? `[data-search="${ae.dataset.search}"]` : ae.id ? `#${ae.id}` : null) : null;
   const caret = focusKey && 'selectionStart' in ae ? [ae.selectionStart, ae.selectionEnd] : null;
-  $('#sheetCount').textContent = `${fmt(filtered().length)} matching`;
+  $('#sheetCount').textContent = '';
   const parts = [];
   // posted
   parts.push(sec('age', 'Posted', f.age !== 'all' ? AGE_LABEL[f.age] : '', `<div class="seg full" data-seg="age">${Object.keys(AGE_MS).map(a => `<button data-v="${a}" class="${f.age === a ? 'on' : ''}">${a === 'all' ? 'Any' : a}</button>`).join('')}</div>`));
   // field (tri-state)
   { const counts = open('field') ? countsFor('fields', j => j.field, ['fields', 'excludeFields']) : new Map();
     parts.push(sec('field', 'Field', [f.fields.length && `${f.fields.length} in`, f.excludeFields.length && `${f.excludeFields.length} out`].filter(Boolean).join(', '),
-      `<p class="tri-help">Click once to include, twice to exclude, again to clear.</p>` + Object.keys(FIELDS).map(fl => { const st = f.fields.includes(fl) ? 'inc' : f.excludeFields.includes(fl) ? 'exc' : ''; return `<div class="tri ${st}" data-field="${esc(fl)}" role="checkbox" tabindex="0" aria-checked="${st === 'inc' ? 'true' : st === 'exc' ? 'mixed' : 'false'}" aria-label="${esc(fl$(fl))}${st === 'exc' ? ' (excluded)' : ''}"><span class="st">${st === 'inc' ? '✓' : st === 'exc' ? '–' : ''}</span><span class="lbl">${esc(fl$(fl))}</span><span class="n">${fmt(counts.get(fl) || 0)}</span></div>`; }).join(''))); }
+      `<p class="tri-help">Click to include, again to exclude.</p>` + Object.keys(FIELDS).map(fl => { const st = f.fields.includes(fl) ? 'inc' : f.excludeFields.includes(fl) ? 'exc' : ''; return `<div class="tri ${st}" data-field="${esc(fl)}" role="checkbox" tabindex="0" aria-checked="${st === 'inc' ? 'true' : st === 'exc' ? 'mixed' : 'false'}" aria-label="${esc(fl$(fl))}${st === 'exc' ? ' (excluded)' : ''}"><span class="st">${st === 'inc' ? '✓' : st === 'exc' ? '–' : ''}</span><span class="lbl">${esc(fl$(fl))}</span><span class="n">${fmt(counts.get(fl) || 0)}</span></div>`; }).join(''))); }
   // specialty
   { const counts = open('spec') ? countsFor('specialties', j => j.specialty) : new Map();
     const fieldsShown = f.fields.length ? f.fields : Object.keys(FIELDS).filter(x => !f.excludeFields.includes(x));
     parts.push(sec('spec', 'Role', f.specialties.length ? `${f.specialties.length} selected` : '', `<input class="fs-search" data-search="spec" placeholder="Filter roles…"><div class="scroll-opts" data-list="spec">${fieldsShown.map(fl => `<div class="sub-group">${esc(fl)}</div>` + FIELDS[fl].map(s => opt('specialties', s, s, counts.get(s) || 0, f.specialties.includes(s))).join('')).join('')}</div>`)); }
   // experience
   { const lo = f.expMin ?? 0, hi = f.expMax ?? 10;
-    parts.push(sec('exp', 'Years of experience', (f.expMin !== null || f.expMax !== null) ? `${lo}–${hi === 10 ? '10+' : hi}` : '', `<div class="presets"><button data-exp="0,1">New grad · 0–1</button><button data-exp="0,2">0–2</button><button data-exp="2,5">2–5</button><button data-exp="5,10">5+</button><button data-exp="">Any</button></div>
+    parts.push(sec('exp', 'Experience', (f.expMin !== null || f.expMax !== null) ? `${lo}–${hi === 10 ? '10+' : hi}` : '', `<div class="presets"><button data-exp="0,1">New grad</button><button data-exp="0,2">0–2</button><button data-exp="2,5">2–5</button><button data-exp="5,10">5+</button><button data-exp="">Any</button></div>
       <div class="range"><div class="range-vals"><span>Asks for <b id="expLo">${lo}</b> to <b id="expHi">${hi === 10 ? '10+' : hi}</b> years</span></div>
       <div class="dual"><div class="track"></div><div class="fill" id="expFill"></div><input type="range" min="0" max="10" step="1" value="${lo}" id="expMinR"><input type="range" min="0" max="10" step="1" value="${hi}" id="expMaxR"></div>
       <div class="ticks"><span>0</span><span>2</span><span>4</span><span>6</span><span>8</span><span>10+</span></div></div>
-      <label class="mini-check"><input type="checkbox" id="expUnknown" ${f.expUnknown ? 'checked' : ''}>Include roles that don’t state experience</label>`)); }
+      <label class="mini-check"><input type="checkbox" id="expUnknown" ${f.expUnknown ? 'checked' : ''}>Include roles that don’t say</label>`)); }
   // type & level
   { const tc = open('type') ? countsFor('types', j => j.type) : new Map(); const lc = open('type') ? countsFor('levels', j => j.level) : new Map();
-    parts.push(sec('type', 'Job type & level', [...f.types, ...f.levels].join(', '), `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div class="opts">${TYPES.map(t => opt('types', t, t, tc.get(t) || 0, f.types.includes(t))).join('')}</div><div class="opts">${LEVELS.filter(t => t !== 'Intern' || f.levels.includes(t)).map(t => opt('levels', t, lv$(t), lc.get(t) || 0, f.levels.includes(t))).join('')}</div></div>`)); }
+    parts.push(sec('type', 'Type & level', [...f.types, ...f.levels].join(', '), `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div class="opts">${TYPES.map(t => opt('types', t, t, tc.get(t) || 0, f.types.includes(t))).join('')}</div><div class="opts">${LEVELS.filter(t => t !== 'Intern' || f.levels.includes(t)).map(t => opt('levels', t, lv$(t), lc.get(t) || 0, f.levels.includes(t))).join('')}</div></div>`)); }
   // visa
   { const c = open('visa') ? countsFor('visa', j => j.visa || 'Not stated') : new Map();
-    parts.push(sec('visa', 'Visa sponsorship', f.visa.join(', '), `<div class="presets"><button data-visa="need">I need sponsorship</button><button data-visa="sponsor">Confirmed sponsors only</button><button data-visa="">Any</button></div><div class="opts">${VISA.map(v => opt('visa', v, v, c.get(v) || 0, f.visa.includes(v))).join('')}</div><p class="fine">“I need sponsorship” keeps roles that sponsor or don’t say, and drops “no sponsorship” and citizens-only roles.</p>`)); }
+    parts.push(sec('visa', 'Visa', f.visa.join(', '), `<div class="presets"><button data-visa="need" title="Keeps roles that sponsor or don’t say. Drops no-sponsorship and citizens-only roles.">I need sponsorship</button><button data-visa="sponsor">Confirmed sponsors</button><button data-visa="">Any</button></div><div class="opts">${VISA.map(v => opt('visa', v, v, c.get(v) || 0, f.visa.includes(v))).join('')}</div>`)); }
   // work mode
   { const c = open('mode') ? countsFor('workModes', j => j.workMode || 'Not stated') : new Map();
     parts.push(sec('mode', 'Work mode', f.workModes.join(', '), `<div class="opts">${WORK_MODES.map(v => opt('workModes', v, v, c.get(v) || 0, f.workModes.includes(v))).join('')}</div>`)); }
@@ -442,18 +470,18 @@ function renderSheet() {
     parts.push(sec('loc', 'Location', f.countries.join(', '), `<input class="fs-search" data-search="loc" placeholder="Filter countries…"><div class="scroll-opts opts" data-list="loc">${list.map(([v, n]) => opt('countries', v, v === 'Unknown' ? 'Location not stated' : v, n, f.countries.includes(v))).join('')}</div>`)); }
   // pay
   { const v = f.payMin ?? 0;
-    parts.push(sec('pay', 'Minimum pay', f.payMin !== null ? `≥ $${f.payMin}k` : '', `<div class="range"><div class="range-vals"><span>At least <b id="payV">${v ? `$${v}k` : 'any'}</b> per year (USD, converted)</span></div>
+    parts.push(sec('pay', 'Pay', f.payMin !== null ? `≥ $${f.payMin}k` : '', `<div class="range"><div class="range-vals"><span>At least <b id="payV">${v ? `$${v}k` : 'any'}</b> a year</span></div>
       <div class="dual"><div class="track"></div><div class="fill" id="payFill" style="left:0;width:${v / 3}%"></div><input type="range" min="0" max="300" step="10" value="${v}" id="payR"></div><div class="ticks"><span>$0</span><span>$100k</span><span>$200k</span><span>$300k</span></div></div>
-      <label class="mini-check"><input type="checkbox" id="payUnknown" ${f.payUnknown ? 'checked' : ''}>Include roles without listed pay</label>`)); }
+      <label class="mini-check"><input type="checkbox" id="payUnknown" ${f.payUnknown ? 'checked' : ''}>Include unlisted pay</label>`)); }
   // degree + term
   { const dc = open('deg') ? countsFor('degrees', j => j.degrees || []) : new Map(); const tc = open('deg') ? countsFor('terms', j => j.terms || []) : new Map();
     const SEASON_END = { Winter: 2, Spring: 5, Summer: 8, Fall: 11 }; const notPast = t => { const [se, y] = t.split(' '); return new Date(+y, SEASON_END[se] || 11, 28) >= new Date() || f.terms.includes(t); };
     const termKey = t => { const [se, y] = t.split(' '); return +y * 12 + (SEASON_END[se] || 11); };
     const terms = [...tc].filter(([t]) => notPast(t)).sort((a, b) => termKey(a[0]) - termKey(b[0])).slice(0, 12);
-    parts.push(sec('deg', 'Degree & term', [...f.degrees, ...f.terms].join(', '), `<div class="sub-group" style="padding:0 0 4px 6px">Roles that accept</div><div class="opts">${DEGREES.map(v => opt('degrees', v, v, dc.get(v) || 0, f.degrees.includes(v))).join('')}</div>${terms.length ? `<div class="sub-group" style="padding:10px 0 4px 6px">Internship term</div><div class="opts">${terms.map(([v, n]) => opt('terms', v, v, n, f.terms.includes(v))).join('')}</div>` : ''}`)); }
+    parts.push(sec('deg', 'Degree & term', [...f.degrees, ...f.terms].join(', '), `<div class="sub-group" style="padding:0 0 4px 8px">Accepts</div><div class="opts">${DEGREES.map(v => opt('degrees', v, v, dc.get(v) || 0, f.degrees.includes(v))).join('')}</div>${terms.length ? `<div class="sub-group" style="padding:10px 0 4px 8px">Internship term</div><div class="opts">${terms.map(([v, n]) => opt('terms', v, v, n, f.terms.includes(v))).join('')}</div>` : ''}`)); }
   // company
   { const sc = open('co') ? countsFor('fundStages', j => j.fundStage) : new Map();
-    parts.push(sec('co', 'Company', [f.fundedOnly && 'funded', ...f.fundStages, f.excludeCompanies.length && `${f.excludeCompanies.length} hidden`].filter(Boolean).join(', '), `<label class="mini-check" style="margin:0 0 8px"><input type="checkbox" data-bool="fundedOnly" ${f.fundedOnly ? 'checked' : ''}>Only startups with a recent funding signal</label><div class="opts">${FUND_STAGES.map(v => opt('fundStages', v, v, sc.get(v) || 0, f.fundStages.includes(v))).join('')}</div>
+    parts.push(sec('co', 'Company', [f.fundedOnly && 'funded', ...f.fundStages, f.excludeCompanies.length && `${f.excludeCompanies.length} hidden`].filter(Boolean).join(', '), `<label class="mini-check" style="margin:0 0 8px"><input type="checkbox" data-bool="fundedOnly" ${f.fundedOnly ? 'checked' : ''}>Recently funded only</label><div class="opts">${FUND_STAGES.map(v => opt('fundStages', v, v, sc.get(v) || 0, f.fundStages.includes(v))).join('')}</div>
       ${f.excludeCompanies.length ? `<div class="sub-group" style="padding:10px 0 4px 6px">Hidden companies</div><div class="tokens" style="margin:0">${f.excludeCompanies.map(c => `<span class="chip"><span class="v">${esc(c)}</span><button data-unhide="${esc(c)}">${ic('x')}</button></span>`).join('')}</div>` : ''}`)); }
   // skills
   { const c = open('skills') ? countsFor('skills', j => j.skills.map(skillN)) : new Map();
@@ -462,19 +490,19 @@ function renderSheet() {
   // sources
   { const c = open('src') ? countsFor('sources', j => j.sources.map(s => s.source)) : new Map();
     const srcs = (S.meta?.sources || []).filter(s => s.kind === 'jobs');
-    parts.push(sec('src', 'Source', f.sources.length ? `${f.sources.length} selected` : f.multiSource ? '2+ sources' : '', `<label class="mini-check" style="margin:0 0 8px"><input type="checkbox" data-bool="multiSource" ${f.multiSource ? 'checked' : ''}>Only roles confirmed by 2+ sources</label><div class="opts">${srcs.map(s => opt('sources', s.id, s.name, c.get(s.id) || 0, f.sources.includes(s.id))).join('')}</div>`)); }
+    parts.push(sec('src', 'Source', f.sources.length ? `${f.sources.length} selected` : f.multiSource ? '2+ sources' : '', `<label class="mini-check" style="margin:0 0 8px"><input type="checkbox" data-bool="multiSource" ${f.multiSource ? 'checked' : ''}>Seen on 2+ sources</label><div class="opts">${srcs.map(s => opt('sources', s.id, s.name, c.get(s.id) || 0, f.sources.includes(s.id))).join('')}</div>`)); }
   // keywords + misc
-  parts.push(sec('kw', 'Exclude & more', [f.excludeQ && 'keywords', f.hideAgencies && 'no agencies', f.hasContact && 'has email', f.hideTracked && 'hide tracked'].filter(Boolean).join(', '), `<label style="display:grid;gap:5px;font-size:12px;color:var(--text2)">Exclude roles mentioning (comma separated)<textarea id="exQ" rows="2" placeholder="senior, staff, clearance, unpaid">${esc(f.excludeQ)}</textarea></label>
-    <label class="mini-check"><input type="checkbox" data-bool="hideAgencies" ${f.hideAgencies ? 'checked' : ''}>Hide staffing agencies &amp; talent marketplaces (Raydar, Weekday, Mercor…)</label>
-    <label class="mini-check"><input type="checkbox" data-bool="hasContact" ${f.hasContact ? 'checked' : ''}>Only roles with a contact email</label>
-    <label class="mini-check"><input type="checkbox" data-bool="hideTracked" ${f.hideTracked ? 'checked' : ''}>Hide roles already in my pipeline</label>`));
+  parts.push(sec('kw', 'More', [f.excludeQ && 'keywords', f.hideAgencies && 'no agencies', f.hasContact && 'has email', f.hideTracked && 'hide tracked'].filter(Boolean).join(', '), `<label class="kw-label">Hide roles mentioning<textarea id="exQ" rows="2" placeholder="senior, staff, clearance">${esc(f.excludeQ)}</textarea></label>
+    <label class="mini-check"><input type="checkbox" data-bool="hideAgencies" ${f.hideAgencies ? 'checked' : ''}>Hide staffing agencies</label>
+    <label class="mini-check"><input type="checkbox" data-bool="hasContact" ${f.hasContact ? 'checked' : ''}>Has a contact email</label>
+    <label class="mini-check"><input type="checkbox" data-bool="hideTracked" ${f.hideTracked ? 'checked' : ''}>Not in my pipeline yet</label>`));
 
   $('#sheetBody').innerHTML = parts.join(''); hydrateIcons($('#sheetBody'));
   $('#sheetBody').scrollTop = scroll;
   wireSheet(); syncExpFill();
   for (const [k, v] of Object.entries(searches)) { const inp = $(`[data-search="${k}"]`, $('#sheetBody')); if (inp && v) { inp.value = v; inp.dispatchEvent(new Event('input')); } }
   if (focusKey) { const el = $(focusKey, $('#sheetBody')); if (el) { el.focus({ preventScroll: true }); if (caret && 'setSelectionRange' in el) try { el.setSelectionRange(...caret); } catch { } } }
-  $('#sheetDone').textContent = `Show ${fmt(filtered().length)} roles`;
+  $('#sheetDone').textContent = `Show ${fmt(current.length)}`;
 }
 const renderSheetDebounced = debounce(renderSheet, 120);
 function wireSheet() {
@@ -542,6 +570,7 @@ function renderViews() {
 function applyView(v) {
   S.activeView = v.id; ls.set('lk2.view', v.id);
   S.filters = normalizeFilters(v.filters); ls.set('lk2.filters', S.filters); $('#q').value = S.filters.q || '';
+  deck.top = deck.next = null;
   $('#viewTitle').textContent = v.name; location.hash = '#jobs'; refreshJobs(); closeSide();
 }
 function describe(f) { return chipList(f).map(c => `${c.k}: ${c.v}`).join(' · ') || 'All roles'; }
@@ -549,8 +578,8 @@ function openSaveView() {
   const v = S.meta.filterSets.find(x => x.id === S.activeView); const form = $('#viewForm');
   const phone = !!S.meta.settings.ntfyTopic;
   form.name.value = v?.name || ''; form.alert.checked = v ? v.alert : phone;
-  $('#alertLabel').textContent = phone ? 'Push new matches to my phone' : 'Push new matches to my phone (connect your phone in Settings first)';
-  $('#viewSummary').textContent = describe(S.filters) + (v ? ` (updates “${v.name}” unless renamed)` : '');
+  $('#alertLabel').textContent = phone ? 'Alert my phone on new matches' : 'Alert my phone (connect it in Settings first)';
+  $('#viewSummary').textContent = describe(S.filters);
   $('#viewDlg').showModal(); setTimeout(() => form.name.select(), 30);
 }
 $('#saveView').onclick = openSaveView;
@@ -592,7 +621,9 @@ function paletteCommands() {
     { g: 'Actions', l: 'Save current filters as view', i: 'plus', run: openSaveView },
     { g: 'Actions', l: 'Clear all filters', i: 'x', run: () => { S.activeView = null; setFilters({ ...EMPTY_FILTERS }); } },
     { g: 'Actions', l: 'Scan every source now', i: 'refresh', run: async () => { await api('/api/scan', { method: 'POST' }); toast('Polling every source now', { live: true }); } },
-    { g: 'Actions', l: 'Toggle light / dark', i: 'moon', run: toggleTheme },
+    { g: 'Look', l: S.mode === 'slides' ? 'Browse as a list' : 'Slide mode: one role at a time', i: S.mode === 'slides' ? 'list' : 'slides', r: 'V', run: () => { location.hash = '#jobs'; setMode(S.mode === 'slides' ? 'list' : 'slides'); } },
+    { g: 'Look', l: 'Toggle light / dark', i: 'moon', run: toggleTheme },
+    { g: 'Look', l: document.documentElement.dataset.density === 'compact' ? 'Comfortable spacing' : 'Compact spacing', i: 'layers', run: () => setDensity(document.documentElement.dataset.density === 'compact' ? 'comfortable' : 'compact') },
   ];
   return cmds;
 }
@@ -624,29 +655,196 @@ $('#palInput').addEventListener('keydown', e => {
   else if (e.key === 'Enter') { e.preventDefault(); runPal(palSel); } else if (e.key === 'Escape') closePalette();
 });
 
+// ───────────────────────────────────────────── slide mode
+// One role at a time, from the current filtered list. Roles you've already tracked are skipped.
+const deck = { skipped: new Set(), history: [], top: null, next: null, full: new Map(), busy: false, dragging: false, back: false, shown: '' };
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+function fullJob(id) {
+  if (!deck.full.has(id)) { if (deck.full.size > 150) deck.full.clear(); deck.full.set(id, api('/api/job/' + encodeURIComponent(id)).catch(() => null)); }
+  return deck.full.get(id);
+}
+function deckList() {
+  const tr = S.meta?.tracking || {};
+  const l = current.filter(j => !tr[j.id]?.status && !deck.skipped.has(j.id));
+  // Keep the card on screen (and the one peeking behind it) in place when new roles arrive.
+  const pin = [deck.top, deck.next].filter(Boolean).map(id => l.find(j => j.id === id)).filter(Boolean);
+  return pin.length ? [...pin, ...l.filter(j => !pin.includes(j))] : l;
+}
+function slideHtml(j, top) {
+  const loc = locShort(j);
+  return `<header class="s-head">${logo(j.company, j.domain, 'logo xl')}<div class="s-co"><b>${esc(j.company)}</b>${loc ? `<span>${esc(loc)}</span>` : ''}</div><span class="s-time ${isHot(j) ? 'hot' : ''}">${when(j)}</span></header>
+    <h2 class="s-title">${esc(j.title)}</h2>
+    <div class="s-pills">${pillsFor(j, 'slide')}</div>
+    <div class="s-body" ${top ? 'id="slideBody"' : ''}>${top ? '<div class="s-skel"></div><div class="s-skel"></div><div class="s-skel"></div>' : ''}</div>
+    ${top ? `<footer class="s-foot"><a class="btn primary lg" id="sApply" target="_blank" rel="noreferrer" title="Open the listing (↑)">Apply ${ic('external')}</a><button class="btn lg" id="sEmail" title="Draft an outreach email (E)">${ic('mail')}Email</button><span class="spacer"></span><button class="btn ghost lg" id="sMore" title="Everything about this role (Space)">Details</button></footer>
+    <div class="stamp save">Save</div><div class="stamp pass">Pass</div><div class="stamp later">Later</div>` : ''}`;
+}
+function blurb(d = '') {
+  const t = String(d).split('\n').filter(l => l.trim() && !/^(category|terms?|sponsorship|degrees?):/i.test(l.trim())).join(' ').replace(/\s+/g, ' ').trim();
+  return t.length > 340 ? t.slice(0, 340).replace(/\s\S*$/, '') + '…' : t;
+}
+function fillSlide(f) {
+  const body = $('#slideBody'); if (!body) return;
+  const p = profile(); const mine = new Set((p.skills || []).map(s => s.toLowerCase()));
+  const reqs = (f.requirements || []).slice(0, 5); const text = reqs.length ? '' : blurb(f.description);
+  const parts = [];
+  if (reqs.length) parts.push(`<h5>Looking for</h5><ul class="reqs">${reqs.map(r => `<li>${esc(r)}</li>`).join('')}</ul>`);
+  else if (text) parts.push(`<p class="s-snippet">${esc(text)}</p>`);
+  if (f.skills?.length) parts.push(`<h5>Skills${p.skills?.length ? `<span class="match-pct">${skillMatch(f, p.skills)}% match</span>` : ''}</h5><div class="chipset">${f.skills.slice(0, 12).map(s => `<span class="sk ${mine.has(s.name.toLowerCase()) ? 'hit' : ''}">${esc(s.name)}</span>`).join('')}</div>`);
+  body.innerHTML = parts.join('') || '<p class="s-snippet">This listing has no summary. Open the details to read it.</p>';
+  const a = $('#sApply'); if (a) a.href = f.applyUrl || f.url;
+}
+function renderDeck(force) {
+  if (S.mode !== 'slides' || (deck.dragging && !force)) return;
+  const el = $('#deck'); const l = deckList(); const [a, b] = l;
+  const sig = a ? `${a.id}|${b?.id || ''}` : 'empty';
+  if (!force && a && sig === deck.shown) { const c = $('#deckCount'); if (c) c.textContent = fmt(l.length); return; }
+  deck.shown = sig;
+  if (!a) {
+    deck.top = deck.next = null;
+    const saved = deck.history.filter(h => h.kind === 'save').length;
+    el.innerHTML = `<div class="deck-empty"><img src="/logo.svg" width="60" alt=""><h3>All caught up</h3><p>${saved ? `${saved} saved this session.` : 'Nothing left to review here.'}</p>
+      <div class="btns">${deck.skipped.size ? `<button class="btn" id="deckAgain">Revisit ${deck.skipped.size} skipped</button>` : ''}${deck.history.length ? `<button class="btn" id="deckUndo">${ic('undo')}Undo</button>` : ''}<button class="btn ghost" id="deckToList">Back to list</button></div></div>`;
+    $('#deckAgain')?.addEventListener('click', () => { deck.skipped.clear(); renderDeck(true); });
+    $('#deckUndo')?.addEventListener('click', deckUndo);
+    $('#deckToList').onclick = () => setMode('list');
+    return;
+  }
+  deck.top = a.id; deck.next = b?.id || null;
+  el.innerHTML = `
+    <div class="deck-top"><span><b id="deckCount">${fmt(l.length)}</b> to go</span><button class="btn ghost" id="deckUndo" title="Undo (Z)" ${deck.history.length ? '' : 'disabled'}>${ic('undo')}Undo</button></div>
+    <div class="deck-stage" id="deckStage">
+      ${l.length > 2 ? '<div class="slide g2"></div>' : ''}
+      ${b ? `<div class="slide g1">${slideHtml(b, false)}</div>` : ''}
+      <article class="slide top ${deck.back ? 'back-in' : ''}" id="slideTop" data-id="${a.id}">${slideHtml(a, true)}</article>
+    </div>
+    <div class="deck-actions">
+      <button class="act pass" data-act="pass" title="Not for me"><span class="ring">${ic('x')}</span><span>Pass <kbd>←</kbd></span></button>
+      <button class="act later" data-act="later" title="Decide later"><span class="ring">${ic('clock')}</span><span>Later <kbd>↓</kbd></span></button>
+      <button class="act save" data-act="save" title="Save to your pipeline"><span class="ring">${ic('bookmark')}</span><span>Save <kbd>→</kbd></span></button>
+    </div>`;
+  deck.back = false;
+  $('#deckUndo').onclick = deckUndo;
+  $$('.act', el).forEach(btn => btn.onclick = () => deckAct(btn.dataset.act));
+  $('#sMore').onclick = () => select(a.id);
+  $('#sEmail').onclick = () => slideEmail(a.id);
+  wireDrag($('#slideTop'));
+  fullJob(a.id).then(f => { if (f && deck.top === a.id) fillSlide(f); });
+  if (b) fullJob(b.id);
+}
+async function deckAct(kind) {
+  if (deck.busy || S.mode !== 'slides') return;
+  const id = $('#slideTop')?.dataset.id; const l = deckList();
+  if (!id || !l.some(j => j.id === id)) { deck.top = deck.next = null; return renderDeck(true); } // card changed underneath (e.g. tracked from Details)
+  const rest = l.filter(j => j.id !== id);
+  deck.busy = true;
+  $('#slideTop').classList.add('fly-' + kind); $('#deckStage')?.classList.add('advancing');
+  deck.history.push({ id, kind }); if (deck.history.length > 60) deck.history.shift();
+  deck.top = rest[0]?.id || null; deck.next = rest[1]?.id || null;
+  try {
+    const anim = new Promise(r => setTimeout(r, reducedMotion() ? 0 : 280));
+    if (kind === 'save') await track(id, 'saved', undefined, true);
+    else if (kind === 'pass') await setHidden(id, true);
+    else deck.skipped.add(id);
+    await anim;
+  } catch (e) { toast(e.message); }
+  deck.busy = false;
+  renderList();
+}
+async function deckUndo() {
+  if (deck.busy) return; const h = deck.history.pop(); if (!h) return;
+  deck.busy = true;
+  try {
+    if (h.kind === 'save') await track(h.id, '', undefined, true);
+    else if (h.kind === 'pass') await setHidden(h.id, false);
+    else deck.skipped.delete(h.id);
+  } catch (e) { toast(e.message); }
+  deck.busy = false; deck.next = deck.top; deck.top = h.id; deck.back = true;
+  renderList();
+}
+async function slideEmail(id) {
+  toast('Finding the best contact…', { ms: 2200 });
+  const f = await fullJob(id); if (!f) return;
+  let c = null; try { c = await api('/api/contacts/' + encodeURIComponent(id)); } catch { }
+  draft(f, c);
+}
+// Drag (or swipe) the card sideways: right saves, left passes.
+function wireDrag(el) {
+  let sx = 0, sy = 0, dx = 0, down = false, moved = false;
+  const stamps = { save: el.querySelector('.stamp.save'), pass: el.querySelector('.stamp.pass') };
+  el.addEventListener('pointerdown', e => { if (e.button || e.target.closest('a,button')) return; down = true; moved = false; sx = e.clientX; sy = e.clientY; dx = 0; });
+  el.addEventListener('pointermove', e => {
+    if (!down) return; dx = e.clientX - sx; const dy = e.clientY - sy;
+    if (!moved) { if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(dy)) return; moved = true; deck.dragging = true; try { el.setPointerCapture(e.pointerId); } catch { } el.classList.add('dragging'); }
+    el.style.transform = `translateX(${dx}px) rotate(${dx / 30}deg)`;
+    const k = Math.min(1, Math.abs(dx) / 130); stamps.save.style.opacity = dx > 0 ? k : 0; stamps.pass.style.opacity = dx < 0 ? k : 0;
+  });
+  const end = () => {
+    if (!down) return; down = false; if (!moved) return;
+    deck.dragging = false; el.classList.remove('dragging');
+    if (dx > 130) deckAct('save'); else if (dx < -130) deckAct('pass');
+    else { el.style.transform = ''; stamps.save.style.opacity = stamps.pass.style.opacity = 0; }
+  };
+  el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+}
+function setMode(m) {
+  S.mode = m === 'slides' ? 'slides' : 'list'; ls.set('lk2.mode', S.mode);
+  $('#v-jobs').classList.toggle('mode-slides', S.mode === 'slides');
+  $$('#modeSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === S.mode));
+  if (S.sel) { S.sel = null; $$('.row.sel', list).forEach(r => r.classList.remove('sel')); detailEmpty(); }
+  if (S.mode === 'slides') renderDeck(true);
+}
+$$('#modeSeg button').forEach(b => b.onclick = () => setMode(b.dataset.v));
+
+// ───────────────────────────────────────────── appearance
+function setTheme(t) { if (t === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t; ls.set('lk2.theme', t === 'system' ? null : t); syncAppearance(); }
+function setDensity(d) { document.documentElement.dataset.density = d; ls.set('lk2.density', d); syncAppearance(); }
+function syncAppearance() {
+  const t = document.documentElement.dataset.theme || 'system', d = document.documentElement.dataset.density || 'comfortable';
+  $$('#themeSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === t));
+  $$('#densitySeg button').forEach(b => b.classList.toggle('on', b.dataset.v === d));
+}
+$$('#themeSeg button').forEach(b => b.onclick = () => setTheme(b.dataset.v));
+$$('#densitySeg button').forEach(b => b.onclick = () => setDensity(b.dataset.v));
+syncAppearance();
+
+
 // ───────────────────────────────────────────── keyboard
 document.addEventListener('keydown', e => {
-  const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
+  const ae = document.activeElement;
+  const typing = /INPUT|TEXTAREA|SELECT/.test(ae?.tagName) || ae?.isContentEditable;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#palBg').classList.contains('hidden') ? openPalette() : closePalette(); return; }
   if (e.key === 'Escape') {
     if (!$('#palBg').classList.contains('hidden')) return closePalette();
     if ($('#sheet').classList.contains('open')) return closeSheet();
-    if (typing) return document.activeElement.blur();
+    if (typing) return ae.blur();
     if (S.sel) { S.sel = null; $$('.row.sel', list).forEach(r => r.classList.remove('sel')); detailEmpty(); }
     return;
   }
   if (typing || e.ctrlKey || e.metaKey || e.altKey || $('#viewDlg').open || !$('#palBg').classList.contains('hidden') || $('#sheet').classList.contains('open')) return;
   if (S.view !== 'jobs') return;
-  const idx = current.findIndex(j => j.id === S.sel);
+  if ((e.key === ' ' || e.key === 'Enter') && /^(BUTTON|A|SUMMARY)$/.test(ae?.tagName)) return; // let the focused control handle it
   const k = e.key.toLowerCase();
-  if (k === 'j' || e.key === 'ArrowDown') { e.preventDefault(); const n = current[Math.min(current.length - 1, idx + 1)]; if (n) { if (idx + 1 >= S.limit) { S.limit += 300; renderList(); } select(n.id); } }
-  else if (k === 'k' || e.key === 'ArrowUp') { e.preventDefault(); const n = current[Math.max(0, idx - 1)]; if (n) select(n.id); }
+  if (k === 'f') { e.preventDefault(); return openSheet(); }
+  if (e.key === '/') { e.preventDefault(); return $('#q').focus(); }
+  if (k === 'v') return setMode(S.mode === 'slides' ? 'list' : 'slides');
+  if (S.mode === 'slides' && !S.sel) {
+    if (e.key === 'ArrowRight' || k === 's') { e.preventDefault(); deckAct('save'); }
+    else if (e.key === 'ArrowLeft' || k === 'x') { e.preventDefault(); deckAct('pass'); }
+    else if (e.key === 'ArrowDown' || k === 'j') { e.preventDefault(); deckAct('later'); }
+    else if (e.key === 'ArrowUp' || e.key === 'Enter') { e.preventDefault(); const a = $('#sApply'); if (a?.href) window.open(a.href, '_blank', 'noopener'); }
+    else if (k === 'e') $('#sEmail')?.click();
+    else if (e.key === ' ') { e.preventDefault(); $('#sMore')?.click(); }
+    else if (k === 'z' || e.key === 'Backspace') { e.preventDefault(); deckUndo(); }
+    return;
+  }
+  const idx = current.findIndex(j => j.id === S.sel);
+  if (S.mode === 'list' && (k === 'j' || e.key === 'ArrowDown')) { e.preventDefault(); const n = current[Math.min(current.length - 1, idx + 1)]; if (n) { if (idx + 1 >= S.limit) { S.limit += 300; renderList(); } select(n.id); } }
+  else if (S.mode === 'list' && (k === 'k' || e.key === 'ArrowUp')) { e.preventDefault(); const n = current[Math.max(0, idx - 1)]; if (n) select(n.id); }
   else if (e.key === 'Enter' && S.detailJob && S.sel) window.open(S.detailJob.applyUrl || S.detailJob.url, '_blank', 'noopener');
   else if (k === 's' && S.sel) track(S.sel, S.meta.tracking[S.sel]?.status === 'saved' ? '' : 'saved');
   else if (k === 'x' && S.sel) hideJob(S.sel);
   else if (k === 'e' && S.sel) $('#dDraft')?.click();
-  else if (k === 'f') { e.preventDefault(); openSheet(); }
-  else if (e.key === '/') { e.preventDefault(); $('#q').focus(); }
 });
 
 // ───────────────────────────────────────────── signals
@@ -654,17 +852,17 @@ async function renderSignals() {
   const { companies } = await api('/api/signals');
   const f = S.sigSeg;
   const rows = companies.filter(c => f === 'all' || (f === 'news' && c.funding.at) || (f === 'yc' && c.yc) || (f === 'open' && c.openJobs)).slice(0, 500);
-  const board = c => c.ats ? `<span class="state ok">Watching ${esc(c.ats.provider)}</span>` : c.atsCheckedAt ? '<span class="state">No public board</span>' : '<span class="state wait">Looking…</span>';
-  $('#sigTable').innerHTML = `<thead><tr><th>Company</th><th>Signal</th><th>When</th><th>Careers board</th><th class="num">Open roles</th></tr></thead><tbody>${rows.map(c => `<tr>
+  const board = c => c.ats ? `<span class="state ok" title="${esc(c.ats.provider)}">Watching</span>` : c.atsCheckedAt ? '<span class="state">None found</span>' : '<span class="state wait">Looking</span>';
+  $('#sigTable').innerHTML = `<thead><tr><th>Company</th><th>Raised</th><th>When</th><th>Careers page</th><th class="num">Roles</th></tr></thead><tbody>${rows.map(c => `<tr>
     <td><div class="co">${logo(c.name, c.website ? c.website.replace(/^https?:\/\/(www\.)?/, '').split('/')[0] : '')}<div><b>${esc(c.name)}</b><small>${esc(c.oneLiner || c.industry || '')}</small></div></div></td>
     <td>${c.funding.url ? `<a class="u" href="${esc(c.funding.url)}" target="_blank" rel="noreferrer">${esc(c.funding.label)}</a>` : esc(c.funding.label)}${c.funding.publisher ? `<div class="muted small">${esc(c.funding.publisher)}</div>` : ''}</td>
     <td class="mono muted">${c.funding.at ? agoLong(Date.parse(c.funding.at)) : '—'}</td>
     <td>${board(c)}</td>
-    <td class="num">${c.openJobs ? `<button class="btn" data-co="${esc(c.name)}" style="height:24px">${c.openJobs}</button>` : '<span class="muted">0</span>'}</td></tr>`).join('')}</tbody>`;
+    <td class="num">${c.openJobs ? `<button class="btn" data-co="${esc(c.name)}" style="height:28px;padding:0 12px">${c.openJobs}</button>` : '<span class="muted">—</span>'}</td></tr>`).join('')}</tbody>`;
   $$('[data-co]').forEach(b => b.onclick = () => {
     const prev = { filters: S.filters, view: S.activeView };
     S.activeView = null; setFilters({ ...EMPTY_FILTERS, q: `"${b.dataset.co.toLowerCase()}"` }); $('#q').value = S.filters.q; location.hash = '#jobs';
-    toast(`Showing all roles at ${b.dataset.co}`, { action: ['Restore my filters', () => { S.activeView = prev.view; setFilters(prev.filters); $('#q').value = S.filters.q || ''; }] });
+    toast(`Roles at ${b.dataset.co}`, { action: ['Back to my filters', () => { S.activeView = prev.view; setFilters(prev.filters); $('#q').value = S.filters.q || ''; }] });
   });
   $('#nSignals').textContent = fmt(companies.length);
 }
@@ -676,7 +874,7 @@ function renderPipeline() {
   const cols = [...STATUSES, ['_hidden', 'Hidden']];
   $('#kanban').innerHTML = cols.map(([st, label]) => {
     const items = Object.entries(S.meta.tracking).filter(([, t]) => st === '_hidden' ? (t.hidden || t.status === 'hidden') : t.status === st).map(([id]) => byId.get(id)).filter(Boolean);
-    const empty = st === 'saved' ? 'Press <kbd>S</kbd> on any role to save it here' : st === '_hidden' ? 'Roles you hide (X) land here; open one to unhide' : 'Nothing here yet';
+    const empty = st === 'saved' ? 'Press <kbd>S</kbd> on a role' : st === '_hidden' ? 'Hidden roles land here' : 'Empty';
     return `<div class="col"><div class="col-h">${label}<span>${items.length}</span></div>${items.map(j => rowHtml(j)).join('') || `<div class="none">${empty}</div>`}</div>`;
   }).join('');
   hydrateIcons($('#kanban'));
@@ -691,33 +889,32 @@ async function renderSources() {
   const atsAdded = S.meta?.sources.find(s => s.id === 'ats')?.totalAdded || 0;
   const totalUnique = d.yield.reduce((n, y) => n + y.unique, 0) + atsAdded;
   const today = d.log.filter(l => Date.now() - Date.parse(l.at) < 864e5).length;
-  if (!$('#discTiles').children.length) $('#discTiles').innerHTML = ['Job sources', 'Company boards watched', 'Discoveries, last 24h', 'Unique roles found, all time'].map((t, i) => `<div class="tile"><span>${t}</span><b data-t="${i}" data-v="0">0</b><small id="tileSub${i}"></small></div>`).join('');
+  if (!$('#discTiles').children.length) $('#discTiles').innerHTML = ['Sources', 'Company boards', 'Found today', 'Roles found'].map((t, i) => `<div class="tile"><span>${t}</span><b data-t="${i}" data-v="0">0</b><small id="tileSub${i}"></small></div>`).join('');
   const vals = [d.sourceCount, d.boards, today, totalUnique];
   $$('#discTiles b').forEach((b, i) => tickTo(b, vals[i]));
-  $('#tileSub0').textContent = `${d.lists.filter(l => !l.disabled).length} auto-discovered`;
-  $('#tileSub1').textContent = Object.entries(d.byProvider).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k} ${v}`).join(' · ');
-  $('#tileSub2').textContent = today ? 'boards & lists added' : 'waiting for next find'; $('#tileSub2').className = today ? 'up' : '';
-  $('#tileSub3').textContent = 'after dedupe';
+  $('#tileSub0').textContent = `${d.lists.filter(l => !l.disabled).length} found automatically`;
+  $('#tileSub1').textContent = 'checked every 1–60 min';
+  $('#tileSub2').textContent = 'new boards and lists'; $('#tileSub2').className = today ? 'up' : '';
+  $('#tileSub3').textContent = 'duplicates removed';
   const tiers = Object.entries(d.tiers).filter(([, n]) => n);
   $('#tierBar').innerHTML = tiers.map(([k, n]) => `<div style="flex:${n};background:${TIER_COLORS[k]}" title="${k}: ${n}"></div>`).join('');
   $('#tierLegend').innerHTML = tiers.map(([k, n]) => `<span><i style="background:${TIER_COLORS[k]}"></i>${k} · ${fmt(n)}</span>`).join('');
-  $('#tierNote').textContent = 'faster for freshly funded and actively hiring companies';
   const via = Object.entries(d.byVia).sort((a, b) => b[1] - a[1]); const max = Math.max(1, ...via.map(v => v[1]));
   $('#viaList').innerHTML = via.map(([k, n]) => `<div class="barrow"><span>${esc(k)}</span><div class="bt"><div style="width:${100 * n / max}%"></div></div><b>${fmt(n)}</b></div>`).join('');
   $('#discLog').innerHTML = d.log.length ? d.log.map(l => `<li><time>${ago(Date.parse(l.at))}</time><div><span class="k ${l.kind}">${l.kind === 'board' ? 'board' : l.kind === 'source' ? 'new list' : 'retired'}</span>${esc(l.text)} <small>via ${esc(l.via)}</small></div></li>`).join('') : '<li><time></time><div class="muted">Discoveries will appear here.</div></li>';
   // sources table
   const yieldOf = id => d.yield.find(y => y.id === id) || { seen: 0, unique: 0 };
   const srcRows = (S.meta?.sources || []).map(s => { const y = yieldOf(s.id); const pct = y.seen ? Math.round(100 * y.unique / y.seen) : 0; const state = s.running ? '<span class="state live">Polling</span>' : s.ok === false ? `<span class="state bad" title="${esc(s.error || '')}">Error</span>` : s.at ? '<span class="state ok">OK</span>' : '<span class="state">Queued</span>';
-    return `<tr><td>${s.home ? `<a class="u" href="${esc(s.home)}" target="_blank" rel="noreferrer">${esc(s.name)}</a>` : esc(s.name)}${s.dynamic ? ' <span class="tag good">auto</span>' : ''}<div class="muted small">${esc(s.trust || '')}</div></td><td>${state}</td><td class="mono muted">${s.every >= 3600 ? Math.round(s.every / 3600) + 'h' : s.every >= 60 ? Math.round(s.every / 60) + 'm' : s.every + 's'}</td><td class="mono muted">${s.at ? ago(Date.parse(s.at)) : '—'}</td><td class="num">${s.id === 'ats' || s.id === 'funding' ? fmt(s.totalAdded || s.added || 0) : `<span class="yieldbar"><span style="width:${pct}%"></span></span>${fmt(y.unique)}`}</td></tr>`; }).join('');
-  $('#srcTable').innerHTML = `<thead><tr><th>Source</th><th>Status</th><th>Every</th><th>Last</th><th class="num">Unique roles</th></tr></thead><tbody>${srcRows}</tbody>`;
+    return `<tr title="${esc(s.trust || '')}"><td>${s.home ? `<a class="u" href="${esc(s.home)}" target="_blank" rel="noreferrer">${esc(s.name)}</a>` : esc(s.name)}${s.dynamic ? ' <span class="tag good" title="Lookout found this list on its own">auto</span>' : ''}</td><td>${state}</td><td class="mono muted">${s.every >= 3600 ? Math.round(s.every / 3600) + 'h' : s.every >= 60 ? Math.round(s.every / 60) + 'm' : s.every + 's'}</td><td class="mono muted">${s.at ? ago(Date.parse(s.at)) : '—'}</td><td class="num">${s.id === 'ats' || s.id === 'funding' ? fmt(s.totalAdded || s.added || 0) : `<span class="yieldbar"><span style="width:${pct}%"></span></span>${fmt(y.unique)}`}</td></tr>`; }).join('');
+  $('#srcTable').innerHTML = `<thead><tr><th>Source</th><th>Status</th><th>Every</th><th>Last check</th><th class="num">Roles found first</th></tr></thead><tbody>${srcRows}</tbody>`;
   $('#watchList').innerHTML = (S.meta?.watch || []).map(w => `<span class="chip"><span class="k">${esc(w.provider)}</span><span class="v">${esc(w.name)}</span><button data-unwatch="${w.id}">${ic('x')}</button></span>`).join('');
   hydrateIcons($('#v-sources'));
   $$('[data-unwatch]').forEach(b => b.onclick = async () => { await api('/api/watch/' + b.dataset.unwatch, { method: 'DELETE' }); await loadMeta(); renderSources(); });
   $('#nSources').textContent = fmt(d.boards);
 }
 $('#watchForm').onsubmit = async e => {
-  e.preventDefault(); const f = e.target; $('#watchMsg').innerHTML = '<span class="spin"></span> Detecting the careers board…';
-  try { const w = await api('/api/watch', { method: 'POST', body: JSON.stringify({ name: f.name.value, url: f.url.value }) }); $('#watchMsg').textContent = `Watching ${w.name} (${w.provider}/${w.board}). New roles show up within a minute.`; f.reset(); await loadMeta(); renderSources(); }
+  e.preventDefault(); const f = e.target; $('#watchMsg').innerHTML = '<span class="spin"></span>';
+  try { const w = await api('/api/watch', { method: 'POST', body: JSON.stringify({ name: f.name.value, url: f.url.value }) }); $('#watchMsg').textContent = `Watching ${w.name}.`; f.reset(); await loadMeta(); renderSources(); }
   catch (err) { $('#watchMsg').textContent = err.message; }
 };
 
@@ -727,7 +924,7 @@ function renderSettings() {
   f.ntfyTopic.value = s.ntfyTopic || ''; f.ntfyServer.value = s.ntfyServer || 'https://ntfy.sh'; f.ntfyToken.value = s.hasToken ? '••••' : ''; f.quietHours.value = s.quietHours || ''; f.desktopNotify.checked = !!s.desktopNotify;
   if (!$('#topicIdea').textContent) $('#topicIdea').textContent = 'lookout-' + crypto.getRandomValues(new Uint32Array(2)).reduce((a, n) => a + n.toString(36), '');
   const p = s.profile || {}; const pf = $('#profileForm'); pf.name.value = p.name || ''; pf.skills.value = (p.skills || []).join(', '); pf.link.value = p.link || ''; pf.pitch.value = p.pitch || '';
-  $('#alertNote').textContent = s.ntfyTopic ? `pushed to ntfy topic ${s.ntfyTopic}` : 'not pushed anywhere yet: connect your phone above';
+  $('#alertNote').textContent = s.ntfyTopic ? '' : 'Phone not connected yet'; syncAppearance();
   const bl = S.meta.blockedCompanies || [];
   $('#blockedList').innerHTML = bl.length ? bl.map(c => `<span class="chip"><span class="v">${esc(c)}</span><button data-unblock="${esc(c)}" title="Unblock">${ic('x')}</button></span>`).join('') : '<span class="muted small">None</span>';
   $$('[data-unblock]').forEach(b => b.onclick = async () => { const r = await api('/api/block', { method: 'POST', body: JSON.stringify({ company: b.dataset.unblock, block: false }) }); S.meta.blockedCompanies = r.blockedCompanies; renderSettings(); refreshJobs(); });
@@ -736,7 +933,7 @@ function renderSettings() {
     const log = $('#alertLog'); $$('.alert-row', log).forEach((r, i) => { r.style.cursor = 'pointer'; r.onclick = () => { location.hash = '#jobs'; setTimeout(() => select(shown[i].jobId), 30); }; });
     if (allAlerts.length > 8 && !S.showAllAlerts) { const b = document.createElement('button'); b.className = 'link small'; b.style.marginTop = '8px'; b.textContent = `Show all ${allAlerts.length}`; b.onclick = () => { S.showAllAlerts = true; renderSettings(); }; log.append(b); }
   });
-  $('#alertLog').innerHTML = allAlerts.length ? shown.map(a => `<div class="alert-row"><span>${esc(a.company)} · ${esc(a.title)}<small>${esc(a.sets.join(', '))}</small></span><span class="mono muted">${ago(Date.parse(a.at))}</span></div>`).join('') : '<p class="muted" style="margin:0">No alerts yet. Turn on the bell for a saved view and new matches will land here and on your phone.</p>';
+  $('#alertLog').innerHTML = allAlerts.length ? shown.map(a => `<div class="alert-row"><span>${esc(a.company)} · ${esc(a.title)}<small>${esc(a.sets.join(', '))}</small></span><span class="mono muted">${ago(Date.parse(a.at))}</span></div>`).join('') : '<p class="muted" style="margin:0">None yet.</p>';
 }
 $('#pushForm').onsubmit = async e => {
   e.preventDefault(); const f = e.target;
@@ -744,15 +941,15 @@ $('#pushForm').onsubmit = async e => {
   if (f.desktopNotify.checked && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
   $('#pushMsg').textContent = 'Saved'; await loadMeta();
 };
-$('#testPush').onclick = async () => { $('#pushMsg').textContent = 'Sending…'; try { await api('/api/test-push', { method: 'POST' }); $('#pushMsg').textContent = 'Sent. Check your phone.'; } catch (e) { $('#pushMsg').textContent = e.message; } };
+$('#testPush').onclick = async () => { $('#pushMsg').textContent = 'Sending…'; try { await api('/api/test-push', { method: 'POST' }); $('#pushMsg').textContent = 'Sent'; } catch (e) { $('#pushMsg').textContent = e.message; } };
 $('#profileForm').onsubmit = async e => {
   e.preventDefault(); const f = e.target;
   await api('/api/settings', { method: 'POST', body: JSON.stringify({ profile: { name: f.name.value, link: f.link.value, pitch: f.pitch.value, skills: f.skills.value.split(',').map(s => s.trim()).filter(Boolean) } }) });
-  $('#profileMsg').textContent = 'Saved. Best match and skill highlights now use your profile.'; await loadMeta(); renderList();
+  $('#profileMsg').textContent = 'Saved'; await loadMeta(); renderList();
 };
 
 // ───────────────────────────────────────────── theme, routing, sidebar
-function toggleTheme() { const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'); const next = cur === 'light' ? 'dark' : 'light'; document.documentElement.dataset.theme = next; ls.set('lk2.theme', next); }
+function toggleTheme() { const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'); const next = cur === 'light' ? 'dark' : 'light'; setTheme(next); }
 { const t = ls.get('lk2.theme', null); if (t) document.documentElement.dataset.theme = t; }
 function route() {
   const v = (location.hash || '#jobs').slice(1); S.view = ['jobs', 'signals', 'pipeline', 'sources', 'settings'].includes(v) ? v : 'jobs';
@@ -770,10 +967,11 @@ document.addEventListener('click', e => { if ($('#side').classList.contains('ope
 function renderEngine() {
   const src = S.meta?.sources || []; const busy = src.some(s => s.running);
   const last = Math.max(0, ...src.map(s => Date.parse(s.at || 0)).filter(Number.isFinite));
-  $('#engine').classList.toggle('live-on', !!S.connected);
-  $('#engState').textContent = !S.connected ? 'Reconnecting…' : busy ? 'Scanning' : 'Live';
   const boards = src.find(s => s.id === 'ats')?.boards || 0;
-  $('#engMeta').innerHTML = `${src.length - 2} feeds · ${fmt(boards)} boards<br>last check ${last ? agoLong(last) : '—'}`;
+  $('#engine').classList.toggle('live-on', !!S.connected);
+  $('#engState').textContent = !S.connected ? 'Offline' : busy ? 'Scanning' : 'Live';
+  $('#engMeta').textContent = boards ? `${fmt(boards)} boards` : '';
+  $('#engine').title = `${Math.max(0, src.length - 2)} feeds and ${fmt(boards)} company boards. Last check ${last ? agoLong(last) : 'pending'}.`;
 }
 setInterval(renderEngine, 5000);
 function connect() {
@@ -786,7 +984,8 @@ function connect() {
     S.jobs = [...fresh, ...S.jobs];
     const c = ctx(); const visible = fresh.filter(j => matches(j, S.filters, c)).map(j => j.id);
     S.pending.push(...visible);
-    if (S.view === 'jobs' && list.scrollTop < 20 && S.pending.length && S.pending.length < 25 && !$('#sheet').classList.contains('open')) { const set = new Set(S.pending); renderList(set); }
+    if (S.mode === 'slides') renderList(); // the deck keeps its card in place and just updates the count
+    else if (S.view === 'jobs' && list.scrollTop < 20 && S.pending.length && S.pending.length < 25 && !$('#sheet').classList.contains('open')) { const set = new Set(S.pending); renderList(set); }
     else updatePill();
     renderQuick(); renderViews();
   });
@@ -808,7 +1007,7 @@ async function init() {
   await loadMeta();
   const v = S.meta.filterSets.find(x => x.id === S.activeView); if (v) $('#viewTitle').textContent = v.name; else S.activeView = null;
   const { jobs } = await api('/api/jobs'); S.jobs = jobs;
-  refreshJobs(); route(); renderEngine(); connect();
+  refreshJobs(); setMode(S.mode); route(); renderEngine(); connect();
   api('/api/signals').then(r => $('#nSignals').textContent = fmt(r.companies.length)).catch(() => { });
   api('/api/discovery').then(d => $('#nSources').textContent = fmt(d.boards)).catch(() => { });
   setInterval(async () => { await loadMeta(); renderViews(); if (S.view === 'sources') renderSources(); }, 30000);

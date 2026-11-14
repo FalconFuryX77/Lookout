@@ -49,7 +49,7 @@ async function githubOrg(url) {
   const org = url?.match(/github\.com\/([A-Za-z0-9-]+)/)?.[1];
   if (!org) return null;
   try {
-    const r = await getText(`https://api.github.com/orgs/${org}`, { timeout: 8000, headers: { accept: 'application/vnd.github+json' } });
+    const r = await getText(`https://api.github.com/orgs/${org}`, { timeout: 8000, conditional: false, headers: { accept: 'application/vnd.github+json' } });
     const d = JSON.parse(r.body); return d.email ? { email: d.email.toLowerCase(), url: `https://github.com/${org}` } : null;
   } catch { return null; }
 }

@@ -7,30 +7,32 @@
 <link rel="icon" href="/logo.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/app.css">
+<script>
+  // Apply saved look before first paint (no flash).
+  try { var t = JSON.parse(localStorage.getItem('lk2.theme')); if (t) document.documentElement.dataset.theme = t;
+        var d = JSON.parse(localStorage.getItem('lk2.density')); if (d) document.documentElement.dataset.density = d; } catch (e) {}
+</script>
 </head>
 <body>
 <div class="shell" id="shell">
   <!-- ============ SIDEBAR ============ -->
   <aside class="side" id="side">
-    <a class="brand" href="#jobs"><img src="/logo.svg" alt="" width="22" height="22"><span>Lookout</span></a>
-    <button class="side-search" id="openPalette"><i data-i="search"></i><span>Search or jump to…</span><kbd>Ctrl K</kbd></button>
+    <a class="brand" href="#jobs"><img src="/logo.svg" alt="" width="24" height="24"><span>Lookout</span></a>
+    <button class="side-search" id="openPalette" title="Search or run a command (Ctrl K)"><i data-i="search"></i><span>Search</span><kbd>Ctrl K</kbd></button>
     <nav class="nav">
-      <a href="#jobs" data-view="jobs"><i data-i="inbox"></i><span>Jobs</span><em id="nJobs"></em></a>
-      <a href="#signals" data-view="signals"><i data-i="zap"></i><span>Hiring signals</span><em id="nSignals"></em></a>
-      <a href="#pipeline" data-view="pipeline"><i data-i="kanban"></i><span>Pipeline</span><em id="nPipeline"></em></a>
-      <a href="#sources" data-view="sources"><i data-i="radar"></i><span>Sources</span><em id="nSources"></em></a>
-      <a href="#settings" data-view="settings"><i data-i="settings"></i><span>Settings</span></a>
+      <a href="#jobs" data-view="jobs" title="Jobs"><i data-i="inbox"></i><span>Jobs</span><em id="nJobs"></em></a>
+      <a href="#signals" data-view="signals" title="Hiring signals"><i data-i="zap"></i><span>Signals</span><em id="nSignals"></em></a>
+      <a href="#pipeline" data-view="pipeline" title="Pipeline"><i data-i="kanban"></i><span>Pipeline</span><em id="nPipeline"></em></a>
+      <a href="#sources" data-view="sources" title="Sources"><i data-i="radar"></i><span>Sources</span><em id="nSources"></em></a>
+      <a href="#settings" data-view="settings" title="Settings"><i data-i="settings"></i><span>Settings</span></a>
     </nav>
     <div class="side-sec">
       <div class="side-h"><span>Saved views</span><button class="icon-btn sm" id="saveView" title="Save current filters as a view"><i data-i="plus"></i></button></div>
       <div id="views" class="views"></div>
     </div>
-    <div class="side-foot" id="engine">
-      <div class="eng-row"><span class="pulse"></span><b id="engState">Connecting</b></div>
-      <div class="eng-meta" id="engMeta">—</div>
-    </div>
+    <div class="side-foot" id="engine"><span class="pulse"></span><b id="engState">Connecting</b><span class="eng-meta" id="engMeta"></span></div>
   </aside>
 
   <!-- ============ MAIN ============ -->
@@ -39,31 +41,38 @@
     <section class="view" id="v-jobs">
       <header class="bar">
         <button class="icon-btn only-m" id="menu"><i data-i="menu"></i></button>
-        <h1 id="viewTitle">Jobs</h1>
+        <h1><span id="viewTitle">Jobs</span><span class="h-count" id="viewCount"></span></h1>
         <div class="search">
           <i data-i="search"></i>
-          <input id="q" type="search" placeholder="Search title, company, skill…" autocomplete="off" spellcheck="false">
+          <input id="q" type="search" placeholder="Search" autocomplete="off" spellcheck="false" title="intern python | go -senior">
           <kbd>/</kbd>
         </div>
-        <div class="seg" id="sort"><button data-v="new">Newest</button><button data-v="best">Best match</button></div>
-        <button class="btn" id="openFilters"><i data-i="sliders"></i>Filters<span class="count" id="fCount"></span></button>
+        <div class="seg" id="modeSeg">
+          <button data-v="list" title="Browse as a list (V)"><i data-i="list"></i><span>List</span></button>
+          <button data-v="slides" title="One role at a time (V)"><i data-i="slides"></i><span>Slides</span></button>
+        </div>
+        <button class="btn" id="openFilters" title="All filters (F)"><i data-i="sliders"></i><span>Filters</span><span class="count" id="fCount"></span></button>
       </header>
-      <div class="quick" id="quick"></div>
-      <div class="chips" id="chips"></div>
+      <div class="strip">
+        <div class="quick" id="quick"></div>
+        <div class="chips" id="chips"></div>
+        <button class="sortbtn" id="sortBtn"></button>
+      </div>
       <div class="panes">
         <div class="list-pane">
-          <div class="list-meta"><span id="resultMeta"></span><button class="newpill hidden" id="newPill"></button></div>
+          <button class="newpill hidden" id="newPill"></button>
           <div class="list" id="list" tabindex="0" role="listbox" aria-label="Jobs"></div>
         </div>
         <article class="detail" id="detail"></article>
       </div>
+      <div class="deck" id="deck"></div>
     </section>
 
     <!-- SIGNALS -->
     <section class="view hidden" id="v-signals">
-      <header class="bar"><button class="icon-btn only-m" data-menu><i data-i="menu"></i></button><h1>Hiring signals</h1>
-        <div class="seg" id="sigSeg"><button data-v="news" class="on">Raised recently</button><button data-v="all">All</button><button data-v="yc">YC</button><button data-v="open">Has open roles</button></div></header>
-      <p class="lede">Companies that just raised money. Lookout finds each one’s careers board and polls it every 2 minutes, so you see their first hires before the job boards do.</p>
+      <header class="bar"><button class="icon-btn only-m" data-menu><i data-i="menu"></i></button><h1>Hiring signals</h1><span class="spacer"></span>
+        <div class="seg" id="sigSeg"><button data-v="news" class="on">Just raised</button><button data-v="yc">YC</button><button data-v="open">Hiring now</button><button data-v="all">All</button></div></header>
+      <p class="lede">Startups that just raised. Their careers pages are checked every 2 minutes.</p>
       <div class="table-wrap"><table class="tbl" id="sigTable"></table></div>
     </section>
 
@@ -75,30 +84,30 @@
 
     <!-- SOURCES -->
     <section class="view hidden" id="v-sources">
-      <header class="bar"><button class="icon-btn only-m" data-menu><i data-i="menu"></i></button><h1>Sources &amp; discovery</h1></header>
+      <header class="bar"><button class="icon-btn only-m" data-menu><i data-i="menu"></i></button><h1>Sources</h1></header>
       <div class="scroll">
         <div class="tiles" id="discTiles"></div>
         <div class="grid-2">
           <div class="card">
-            <div class="card-h"><h3>How often each board is polled</h3><span class="muted" id="tierNote"></span></div>
+            <div class="card-h"><h3>How often boards are checked</h3></div>
             <div class="tierbar" id="tierBar"></div>
             <div class="tierlegend" id="tierLegend"></div>
-            <div class="card-h" style="margin-top:20px"><h3>Where new sources come from</h3></div>
+            <div class="card-h" style="margin-top:28px"><h3>Where sources come from</h3></div>
             <div id="viaList" class="bars"></div>
           </div>
           <div class="card">
-            <div class="card-h"><h3>Discovery log</h3><span class="muted">grows on its own</span></div>
+            <div class="card-h"><h3>Recently discovered</h3></div>
             <ul class="log" id="discLog"></ul>
           </div>
         </div>
         <div class="card">
-          <div class="card-h"><h3>Watch a company</h3><span class="muted">Paste a careers URL or website. Polled every minute.</span></div>
-          <form id="watchForm" class="inline-form"><input name="name" placeholder="Company (optional)"><input name="url" required placeholder="https://jobs.ashbyhq.com/acme  or  acme.com"><button class="btn primary">Watch</button></form>
+          <div class="card-h"><h3>Watch a company</h3><span class="muted">Checked every minute</span></div>
+          <form id="watchForm" class="inline-form"><input name="name" placeholder="Company (optional)"><input name="url" required placeholder="Careers page or website"><button class="btn primary">Watch</button></form>
           <div id="watchMsg" class="muted small"></div>
           <div id="watchList" class="tokens"></div>
         </div>
         <div class="card">
-          <div class="card-h"><h3>Sources</h3><span class="muted">Unique = roles no other source had first</span></div>
+          <div class="card-h"><h3>All sources</h3></div>
           <div class="table-wrap flat"><table class="tbl" id="srcTable"></table></div>
         </div>
       </div>
@@ -108,26 +117,31 @@
     <section class="view hidden" id="v-settings">
       <header class="bar"><button class="icon-btn only-m" data-menu><i data-i="menu"></i></button><h1>Settings</h1></header>
       <div class="scroll settings">
+        <div class="card">
+          <div class="card-h"><h3>Appearance</h3></div>
+          <div class="pref"><span>Theme</span><div class="seg" id="themeSeg"><button data-v="system">System</button><button data-v="light">Light</button><button data-v="dark">Dark</button></div></div>
+          <div class="pref"><span>Density</span><div class="seg" id="densitySeg"><button data-v="comfortable">Comfortable</button><button data-v="compact">Compact</button></div></div>
+        </div>
         <form id="profileForm" class="card form">
-          <div class="card-h"><h3>Your profile</h3><span class="muted">Ranks “Best match” and fills outreach drafts. Stays on this computer.</span></div>
-          <div class="row2"><label>Name<input name="name" placeholder="Your name"></label><label>Link (portfolio, GitHub, LinkedIn)<input name="link" placeholder="https://"></label></div>
-          <label>Skills (comma separated)<input name="skills" placeholder="Python, React, SQL, PyTorch"></label>
-          <label>Pitch: 2–3 lines about you<textarea name="pitch" rows="3" placeholder="Final-year CS student. Built … Shipped …"></textarea></label>
-          <div class="form-foot"><button class="btn primary">Save profile</button><span class="muted small" id="profileMsg"></span></div>
+          <div class="card-h"><h3>Your profile</h3><span class="muted">Used for match ranking and email drafts</span></div>
+          <div class="row2"><label>Name<input name="name"></label><label>Link<input name="link" placeholder="Portfolio, GitHub or LinkedIn"></label></div>
+          <label>Skills<input name="skills" placeholder="Python, React, SQL"></label>
+          <label>Pitch<textarea name="pitch" rows="3" placeholder="Two or three lines about you"></textarea></label>
+          <div class="form-foot"><button class="btn primary">Save</button><span class="muted small" id="profileMsg"></span></div>
         </form>
         <form id="pushForm" class="card form">
-          <div class="card-h"><h3>Phone alerts</h3><span class="muted">via ntfy, free on Android and iOS</span></div>
-          <ol class="steps"><li>Install <b>ntfy</b> and subscribe to a hard-to-guess topic, e.g. <code id="topicIdea"></code></li><li>Enter it below, then send a test.</li><li>Turn on the bell for any saved view.</li></ol>
-          <div class="row2"><label>Topic<input name="ntfyTopic" placeholder="lookout-…" pattern="[A-Za-z0-9_-]{1,64}"></label><label>Server<input name="ntfyServer" placeholder="https://ntfy.sh"></label></div>
-          <div class="row2"><label>Access token (private servers)<input name="ntfyToken" type="password" autocomplete="off"></label><label>Quiet hours<input name="quietHours" placeholder="23:30-07:00"></label></div>
-          <label class="check"><input type="checkbox" name="desktopNotify"><span>Desktop notifications while Lookout is open</span></label>
-          <div class="form-foot"><button class="btn primary">Save</button><button type="button" class="btn" id="testPush">Send test push</button><span class="muted small" id="pushMsg"></span></div>
-          <p class="fine">Anyone who guesses a topic on public ntfy.sh can read it. Use a long random one, or your own server with a token.</p>
+          <div class="card-h"><h3>Phone alerts</h3><span class="muted">Free, via the ntfy app</span></div>
+          <ol class="steps"><li>Install <b>ntfy</b> and subscribe to a topic like <code id="topicIdea"></code></li><li>Enter it here and send a test.</li><li>Turn on the bell for a saved view.</li></ol>
+          <div class="row2"><label>Topic<input name="ntfyTopic" pattern="[A-Za-z0-9_-]{1,64}"></label><label>Server<input name="ntfyServer" placeholder="https://ntfy.sh"></label></div>
+          <div class="row2"><label>Access token (optional)<input name="ntfyToken" type="password" autocomplete="off"></label><label>Quiet hours (optional)<input name="quietHours" placeholder="23:30-07:00"></label></div>
+          <label class="check"><input type="checkbox" name="desktopNotify"><span>Desktop notifications too</span></label>
+          <div class="form-foot"><button class="btn primary">Save</button><button type="button" class="btn" id="testPush">Send test</button><span class="muted small" id="pushMsg"></span></div>
+          <p class="fine">Public ntfy topics can be read by anyone who guesses the name, so pick a long random one.</p>
         </form>
-        <div class="card"><div class="card-h"><h3>Recent alert matches</h3><span class="muted" id="alertNote"></span></div><div id="alertLog"></div></div>
-        <div class="card"><div class="card-h"><h3>Blocked companies</h3><span class="muted">Never shown, never alerted. Block from any role’s detail.</span></div><div id="blockedList" class="tokens" style="margin:0"></div></div>
+        <div class="card"><div class="card-h"><h3>Recent alerts</h3><span class="muted" id="alertNote"></span></div><div id="alertLog"></div></div>
+        <div class="card"><div class="card-h"><h3>Blocked companies</h3></div><div id="blockedList" class="tokens" style="margin:0"></div></div>
         <div class="card"><div class="card-h"><h3>Keyboard</h3></div>
-          <div class="keys"><span><kbd>Ctrl K</kbd> Command menu</span><span><kbd>/</kbd> Search</span><span><kbd>J</kbd><kbd>K</kbd> Next / previous</span><span><kbd>Enter</kbd> Open listing</span><span><kbd>S</kbd> Save</span><span><kbd>E</kbd> Draft email</span><span><kbd>X</kbd> Hide</span><span><kbd>F</kbd> Filters</span><span><kbd>Esc</kbd> Close</span></div></div>
+          <div class="keys"><span><kbd>Ctrl K</kbd>Command menu</span><span><kbd>/</kbd>Search</span><span><kbd>F</kbd>Filters</span><span><kbd>V</kbd>List / slides</span><span><kbd>J</kbd><kbd>K</kbd>Next / previous</span><span><kbd>Enter</kbd>Apply</span><span><kbd>S</kbd>Save</span><span><kbd>E</kbd>Email</span><span><kbd>X</kbd>Hide</span><span><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd>Pass / later / save (slides)</span><span><kbd>Z</kbd>Undo (slides)</span><span><kbd>Esc</kbd>Close</span></div></div>
       </div>
     </section>
   </main>
@@ -138,13 +152,13 @@
 <aside class="sheet" id="sheet" aria-hidden="true">
   <header class="sheet-h"><div><h2>Filters</h2><span class="muted" id="sheetCount"></span></div><button class="icon-btn" id="closeSheet"><i data-i="x"></i></button></header>
   <div class="sheet-body" id="sheetBody"></div>
-  <footer class="sheet-f"><button class="btn ghost" id="resetFilters">Reset all</button><button class="btn" id="sheetSave">Save as view</button><button class="btn primary" id="sheetDone">Show results</button></footer>
+  <footer class="sheet-f"><button class="btn ghost" id="resetFilters">Reset</button><button class="btn" id="sheetSave">Save as view</button><button class="btn primary" id="sheetDone">Done</button></footer>
 </aside>
 
 <!-- Command palette -->
 <div class="pal-bg hidden" id="palBg">
   <div class="pal" role="dialog" aria-label="Command menu">
-    <div class="pal-in"><i data-i="search"></i><input id="palInput" placeholder="Search jobs, views, filters, pages…" autocomplete="off" spellcheck="false"><kbd>Esc</kbd></div>
+    <div class="pal-in"><i data-i="search"></i><input id="palInput" placeholder="Search or run a command" autocomplete="off" spellcheck="false"><kbd>Esc</kbd></div>
     <div class="pal-list" id="palList"></div>
   </div>
 </div>
@@ -154,9 +168,9 @@
   <form method="dialog" id="viewForm">
     <h2>Save view</h2>
     <p class="muted small" id="viewSummary"></p>
-    <label>Name<input name="name" required maxlength="60" placeholder="e.g. Remote ML internships, sponsors visa"></label>
-    <label class="check"><input type="checkbox" name="alert"><span id="alertLabel">Push new matches to my phone</span></label>
-    <div class="form-foot end"><button type="button" class="btn ghost" id="viewCancel">Cancel</button><button value="ok" class="btn primary">Save view</button></div>
+    <label>Name<input name="name" required maxlength="60" placeholder="Remote ML internships"></label>
+    <label class="check"><input type="checkbox" name="alert"><span id="alertLabel">Alert my phone on new matches</span></label>
+    <div class="form-foot end"><button type="button" class="btn ghost" id="viewCancel">Cancel</button><button value="ok" class="btn primary">Save</button></div>
   </form>
 </dialog>
 

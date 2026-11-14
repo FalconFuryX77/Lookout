@@ -85,12 +85,20 @@ namespace Lookout
             if (startHidden) _form.Hide();
         }
 
+        private const string LoadingHtml = "<!doctype html><html><body style=\"margin:0;height:100vh;display:grid;place-items:center;background:#09090b;color:#a1a1aa;font:14px 'Segoe UI',sans-serif\"><div style=\"text-align:center\"><div style=\"width:28px;height:28px;margin:0 auto 14px;border:2px solid #26262b;border-top-color:#c6f432;border-radius:50%;animation:s 0.8s linear infinite\"></div>Starting Lookout&hellip;<style>@keyframes s{to{transform:rotate(360deg)}}</style></div></body></html>";
+
         private async Task InitializeAsync()
         {
             try
             {
-                await StartScannerAsync();
                 await _browser.EnsureCoreWebView2Async();
+                _browser.CoreWebView2.NavigateToString(LoadingHtml);
+                // Reuse a scanner that is already running (second launch, or started elsewhere).
+                if (!await IsServerReadyAsync())
+                {
+                    StartScanner();
+                    await WaitForServerAsync(TimeSpan.FromSeconds(90));
+                }
                 _browser.CoreWebView2.Navigate(AppUrl);
             }
             catch (Exception ex)
@@ -100,9 +108,40 @@ namespace Lookout
             }
         }
 
-        private async Task StartScannerAsync()
+        private static async Task<bool> IsServerReadyAsync()
+        {
+            try
+            {
+                var request = (HttpWebRequest)WebRequest.Create(AppUrl + "api/meta");
+                request.Timeout = 2000;
+                request.Proxy = null;
+                using (var response = (HttpWebResponse)await Task.Run(() => request.GetResponse()))
+                    return response.StatusCode == HttpStatusCode.OK;
+            }
+            catch { return false; }
+        }
+
+        // The scanner loads its saved jobs before it listens (a few seconds on a big database), so poll until it answers.
+        private async Task WaitForServerAsync(TimeSpan timeout)
+        {
+            var deadline = DateTime.UtcNow + timeout;
+            while (DateTime.UtcNow < deadline)
+            {
+                if (await IsServerReadyAsync()) return;
+                if (_server != null && _server.HasExited)
+                {
+                    if (await IsServerReadyAsync()) { _server = null; return; } // another instance won the port
+                    throw new InvalidOperationException("The scanner stopped during startup. See lookout-desktop.log in the Lookout folder for details.");
+                }
+                await Task.Delay(400);
+            }
+            throw new TimeoutException("The scanner did not respond within " + (int)timeout.TotalSeconds + " seconds. See lookout-desktop.log for details.");
+        }
+
+        private void StartScanner()
         {
             string node = FindNode();
+            try { var log = new FileInfo(Path.Combine(_appDir, "lookout-desktop.log")); if (log.Exists && log.Length > 1000000) log.Delete(); } catch { }
             var start = new ProcessStartInfo
             {
                 FileName = node,
@@ -119,19 +158,6 @@ namespace Lookout
             if (!_server.Start()) throw new InvalidOperationException("Node.js could not be started.");
             _server.BeginOutputReadLine();
             _server.BeginErrorReadLine();
-            await Task.Delay(1500);
-            if (_server.HasExited)
-            {
-                string details = String.Empty;
-                try { details = File.ReadAllText(Path.Combine(_appDir, "lookout-desktop.log")); }
-                catch { }
-                if (details.IndexOf("EADDRINUSE", StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    _server = null;
-                    return;
-                }
-                throw new InvalidOperationException("The scanner stopped during startup. See lookout-desktop.log for details.");
-            }
         }
 
         private static string FindNode()
