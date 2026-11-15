@@ -14,7 +14,8 @@ A local, near-real-time job scanner that watches freshly funded startups, dedupl
 - [Phone alerts](#phone-alerts)
 - [How it finds jobs early](#how-it-finds-jobs-early)
 - [It finds new sources on its own](#it-finds-new-sources-on-its-own)
-- [Two ways to browse](#two-ways-to-browse)
+- [Profiles and your résumé](#profiles-and-your-résumé)
+- [Browsing](#browsing)
 - [Filtering and saved views](#filtering-and-saved-views)
 - [Who to contact](#who-to-contact)
 - [Memory and storage](#memory-and-storage)
@@ -39,6 +40,10 @@ A local, near-real-time job scanner that watches freshly funded startups, dedupl
 - **Helps you reach out.** It finds published contacts (job post, company site, GitHub org, YC founders) and drafts a personalised outreach email.
 - **Tracks your search.** A pipeline board holds saved, applied, contacted, interviewing and closed roles, with notes.
 - **Stays on your machine.** Everything is stored locally in one file.
+
+## Download
+
+Get the latest Windows build from the [Releases page](https://github.com/FalconFuryX77/lookout/releases/latest): download `Lookout-windows.zip`, unzip it anywhere, and double-click `Lookout.exe`. The landing page for the project is in [`docs/`](docs/index.html).
 
 ## Quick start
 
@@ -72,7 +77,17 @@ Lookout only scans while it's running, so keep the computer awake if you want ar
 
 1. Install **ntfy** (free on [Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy) and [iOS](https://apps.apple.com/app/ntfy/id1625396347)). Subscribe to a long, hard-to-guess topic name.
 2. In Lookout, open **Settings → Phone alerts**, enter the same topic, and press **Send test push**.
-3. Turn on the **bell** next to any saved view.
+3. Click the **bell** next to any saved view and choose **My phone**.
+
+**Sending a view to someone else.** Each view has its own alert destination. Click its bell and pick **A separate channel**, then enter either a topic name (`lookout-aisha-7fk2`, on your ntfy server) or a full address (`https://ntfy.sh/lookout-aisha-7fk2`). That person subscribes to the same name in their ntfy app. One view per friend means each of them only hears about roles that fit them. A role that matches several views is sent once per channel. Quiet hours only mute your own phone.
+
+### LinkedIn
+
+Lookout reads LinkedIn's **public** job search, the pages anyone sees logged out. It needs no account, cookie or password, and none is ever stored. Set your searches in **Settings → LinkedIn searches**, one per line as `keywords | location` (add `| remote` for remote-only). It checks every 4 minutes, asks only for roles posted in the last 3 hours, and reads the newest first, so a new role usually shows up within minutes of LinkedIn listing it. A slower sweep of the last day (about every half hour) fills in anything posted while your computer was off. Each new role's full description is fetched once.
+
+Phone alerts for LinkedIn are only sent for roles posted in the last two hours; older ones still appear in the app. Each alert says how old the posting was when it was sent ("Posted 12 min ago").
+
+This is deliberately gentle: a few searches, small pages, a pause between requests. LinkedIn rate-limits anonymous traffic, so if it starts refusing, Lookout backs off and tries again later. Automated access is against LinkedIn's terms of use; that is your call to make. Clear the box to turn it off.
 
 Each alert has **Open listing** and **Email** buttons. If a scan finds more than 4 matches at once, they arrive as a single digest. Optional quiet hours are supported (for example `23:30-07:00`).
 
@@ -113,15 +128,18 @@ The fastest signal is the company's own careers board: a role appears there befo
 - **Verified ownership only.** A board is attached to a company only when the company's own website links to it. Board names are never guessed from company names, because generic names like "elite" belong to unrelated companies.
 - **Yield tracking.** The **Sources** page shows each source's unique contribution, boards grouped by polling speed, where new sources came from, and a running discovery log.
 
-## Two ways to browse
+## Profiles and your résumé
 
-- **List** — rows on the left, the selected role on the right. Each row shows the title, company, location and up to three facts (pay, visa, experience, remote, funding).
-- **Slides** — one role at a time, as a card. Press `V` or use the List / Slides switch.
-  - `→` or drag right: **Save** to your pipeline
-  - `←` or drag left: **Pass** (hides the role; find it later under Pipeline → Hidden)
-  - `↓`: **Later** (skips it for this session)
-  - `↑` or `Enter`: open the listing to apply · `E`: draft an email · `Space`: full details · `Z`: undo
-  - Slides follow your current filters and skip roles you've already tracked. New roles arriving don't move the card you're reading.
+**Settings → Profile** is where Lookout learns who it is searching for.
+
+- **Import your résumé** (PDF, Word .docx, or pasted text). It is read on your computer by the scanner itself; nothing is uploaded and no outside service is involved. Lookout pulls out your name, links, skills, education, experience and years of experience, saves them to the profile, and you can edit any of it afterwards. Scanned or image-only PDFs have no text to read; paste the text instead.
+- **Skills** are split into technical ones (languages, frameworks, tools, engineering disciplines) and general ones ("Sales", "Operations", "Communication"). Technical skills are shown first and drive the match; general ones are kept but shown quieter, in the profile, on each role and in the Skills filter.
+- **Matching.** Each role shows "You have 7 of 12" with the skills you have and the ones you are missing. Sorting by **Best match** ranks by that, and lowers roles that ask for more years than your profile has. **Filters → Skills → My skills** ticks every technical skill on your profile in one click.
+- **Several profiles.** Use one per person sharing the computer, or one per kind of role you are going for. Each profile has its own résumé, skills, saved views, pipeline and blocked companies. Switch from the name at the bottom of the sidebar. Alerts keep going out for every profile's views, whichever one is open; give each person's views their own channel (the bell on a saved view) so pushes reach the right phone. Phone settings, sources and the job list itself are shared.
+
+## Browsing
+
+Rows on the left, the selected role on the right. Each row shows the title, company, location and up to three facts (pay, visa, experience, remote, funding).
 
 **Settings → Appearance** has the theme (system, light, dark) and density (comfortable or compact).
 
@@ -134,7 +152,7 @@ Press **F** to open the filter sheet. Every count updates live, and active filte
 | Posted | last 15 min, 1 h, 6 h, 24 h, 3 d, 7 d, 30 d, any. Short windows only count roles with an exact posting time. |
 | Field | Software & IT, Hardware & physical engineering, Product & design, Business, Science & research. Click once to include, twice to exclude. |
 | Role | AI/ML, data science, data engineering, analytics, frontend, backend, full-stack, mobile, DevOps/cloud, security, QA, embedded, IT & support, quant, and more |
-| Years of experience | dual slider and presets ("New grad · 0–1"), with an option to include roles that don't say |
+| Experience | pick any stages (internship, apprenticeship, entry / new grad, mid, senior, lead, part-time, contract); a role shows if it matches **any** of them. Plus a years slider, with an option to include roles that don't say. |
 | Visa sponsorship | sponsors, no sponsorship, citizens/clearance only, not stated. One click for "I need sponsorship". |
 | Work mode, location | remote, hybrid, on-site; by country/region |
 | Minimum pay | normalised to USD per year from $, ₹ (LPA, lakh), €, £, CAD and others, including hourly and monthly rates |
@@ -173,7 +191,7 @@ Everything lives in **`data/db.json`** and is saved every 15 seconds. Close Look
 | Hidden roles and blocked companies | hidden roles live in Pipeline → Hidden; blocked companies are in Settings |
 | Saved views | filters plus alert on/off |
 | Settings and profile | ntfy topic/server/token, quiet hours, name, skills, pitch, link |
-| Jobs | up to 12,000 roles from the last 60 days, with all their sources |
+| Jobs | roles from the last 60 days, with all their sources. Internships, apprenticeships and entry-level roles are all kept (up to 15,000); everything else keeps its newest 12,000 |
 | Scanner state | discovered boards and when each was last polled, auto-discovered lists, feed cursors (e.g. the last HN comment seen), funding rounds, contact lookups |
 | Feed versions | each feed's ETag / Last-Modified, so a restart asks "anything new?" instead of re-downloading everything |
 | Pruned roles | a list of roles already dropped, so the same old postings aren't re-added on every poll |
@@ -190,9 +208,19 @@ The Windows app also remembers UI preferences, such as your current filters and 
 Two listings count as the same role when:
 
 - their canonical URLs match (tracking parameters stripped), **or**
-- the normalised company name and title match, and their cities and internship terms don't conflict.
+- the normalised company name and title match, their cities and internship terms don't conflict, and they were posted within three weeks of each other. The same title at the same company a month later is treated as a new opening.
 
 Title normalisation collapses "SWE"/"Developer"/"Engineering" synonyms and ignores word order and location/season suffixes. Descriptive suffixes are kept, so "Intern – Software" and "Intern – Mechanical" stay separate. A merged role keeps the earliest, most precise posting time and the longest description.
+
+### The root listing, not a middleman's copy
+
+A role often reaches you through a chain: a job board links to a recruiter's page, which links to the employer's own listing, and every hop asks for your details. Lookout tries to cut the chain:
+
+- **Apply opens the most direct link on file.** When several sources report the same role, the employer's own applicant system (Greenhouse, Lever, Ashby, Workday and so on) wins over any board's copy.
+- **Re-posts are folded into the original.** If a posting never names its poster but talks about another company's product or team, and that company has the same role on file, the copy is folded into the employer's listing. For known re-posters Lookout also looks for the employer's own board.
+- **When the original can't be found, the copy is labelled**, for example "Re-posted by Joblet-AI for micro1", with a one-click search for the original. **Filters → More → Hide recruiters and re-posted roles** removes these from a view and from its alerts.
+
+LinkedIn hides its off-site apply link from logged-out visitors, so a re-post that only exists on LinkedIn can be labelled but not followed to its source.
 
 Every time label follows one rule:
 
@@ -211,8 +239,7 @@ Every time label follows one rule:
 | `/` | search | `E` | draft outreach email |
 | `J` / `K` | next / previous role | `X` | hide role |
 | `Enter` | open the listing to apply | `F` | filters |
-| `V` | switch list / slides | `Esc` | close / clear |
-| `←` `↓` `→` | pass / later / save (slides) | `Z` | undo (slides) |
+| `Esc` | close / clear | | |
 
 ## Project structure
 
@@ -230,8 +257,11 @@ src/
   contacts.mjs         published-contact discovery
   store.mjs            persistence, migrations, ingestion
   notify.mjs           ntfy push
+  linkedin.mjs         LinkedIn public job search
+  root.mjs             link directness, re-post detection, same-role matching
+  resume.mjs           résumé reading (PDF, .docx, text) and parsing, all local
   util.mjs             HTTP with conditional requests, HTML/RSS parsing
-public/                the web UI (index.html, app.js, app.css, filters.mjs, logo.svg)
+public/                the web UI (index.html, app.js, app.css, filters.mjs, skills.mjs, logo.svg)
 desktop/
   Lookout.cs           source for Lookout.exe
   lookout.ico          app icon (generated by make-icon.ps1)
@@ -241,7 +271,7 @@ setup-desktop.ps1      installs Desktop + sign-in shortcuts
 data/db.json           your data (not committed)
 ```
 
-`public/filters.mjs` is shared by the UI and the server, so a saved view filters the list and triggers phone alerts in exactly the same way.
+`public/filters.mjs` is shared by the UI and the server, so a saved view filters the list and triggers phone alerts in exactly the same way. `public/skills.mjs` is the one skill vocabulary, used both to read postings and résumés and to decide what counts as technical.
 
 ## Development
 

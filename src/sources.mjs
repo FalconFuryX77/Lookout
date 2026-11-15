@@ -1,6 +1,7 @@
 // Job sources. Each returns normalized postings; the store handles enrichment + dedupe.
 // `every` is the poll interval in seconds, chosen to match how fast the source changes
 // and what its terms allow.
+import { linkedin } from './linkedin.mjs';
 import { getText, getJson, htmlToText, feedEntries, xmlTag, xmlText, xmlLink, toIso, precisionOf, decodeEntities } from './util.mjs';
 
 const DAY = 864e5;
@@ -150,7 +151,7 @@ async function himalayas() {
   const { data } = await getJson('https://himalayas.app/jobs/api?limit=100', { timeout: 20000 });
   return (data.jobs || []).map(j => ({
     title: j.title, company: j.companyName, url: j.applicationLink || j.guid, companyUrl: '', location: (j.locationRestrictions || []).join('; ') || 'Remote', remote: true,
-    typeHint: j.employmentType || '', level: /entry|junior|intern/i.test((j.seniority || []).join(' ')) ? 'Entry' : undefined,
+    typeHint: j.employmentType || '', levelHint: j.seniority || '',
     description: htmlToText(j.description || j.excerpt || ''), salary: j.minSalary ? `${j.currency || '$'} ${j.minSalary}–${j.maxSalary || ''}` : '',
     postedAt: toIso(j.pubDate), precision: 'minute', sourceJobId: `him:${j.guid}`,
   }));
@@ -159,7 +160,7 @@ async function jobicy() {
   const { data } = await getJson('https://jobicy.com/api/v2/remote-jobs?count=50', { timeout: 20000 });
   return (data.jobs || []).map(j => ({
     title: decodeEntities(j.jobTitle), company: j.companyName, url: j.url, location: j.jobGeo || 'Remote', remote: true,
-    typeHint: (j.jobType || []).join(' '), description: htmlToText(j.jobDescription || j.jobExcerpt || ''),
+    typeHint: (j.jobType || []).join(' '), levelHint: j.jobLevel || '', description: htmlToText(j.jobDescription || j.jobExcerpt || ''),
     salary: j.annualSalaryMin ? `${j.salaryCurrency || ''} ${j.annualSalaryMin}–${j.annualSalaryMax || ''}` : '',
     postedAt: toIso(j.pubDate), precision: 'minute', sourceJobId: `jobicy:${j.id}`,
   }));
@@ -207,6 +208,7 @@ async function ycJobs() {
 }
 
 export const JOB_SOURCES = [
+  { id: 'linkedin', name: 'LinkedIn (public job search)', every: 240, home: 'https://www.linkedin.com/jobs/search', trust: 'Public listings, read logged out. Searches are set in Settings', run: linkedin },
   { id: 'hn-hiring', name: 'HN: Who is hiring', every: 60, home: 'https://news.ycombinator.com/submitted?id=whoishiring', trust: 'Posted by the hiring company on Hacker News', run: hnWhoIsHiring },
   { id: 'hn-jobs', name: 'HN: YC job posts', every: 60, home: 'https://news.ycombinator.com/jobs', trust: 'Posted by YC companies', run: hnJobStories },
   { id: 'simplify-intern', name: 'Simplify internships (GitHub)', every: 120, home: 'https://github.com/SimplifyJobs/Summer2027-Internships', trust: 'Community-verified list, links to employer ATS', run: simplifyAdapter('https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/.github/scripts/listings.json', 'intern') },

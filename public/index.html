@@ -32,6 +32,7 @@
       <div class="side-h"><span>Saved views</span><button class="icon-btn sm" id="saveView" title="Save current filters as a view"><i data-i="plus"></i></button></div>
       <div id="views" class="views"></div>
     </div>
+    <button class="who" id="who" title="Switch profile"><span class="who-av" id="whoAv"></span><span class="who-name" id="whoName"></span><i data-i="sort"></i></button>
     <div class="side-foot" id="engine"><span class="pulse"></span><b id="engState">Connecting</b><span class="eng-meta" id="engMeta"></span></div>
   </aside>
 
@@ -47,10 +48,6 @@
           <input id="q" type="search" placeholder="Search" autocomplete="off" spellcheck="false" title="intern python | go -senior">
           <kbd>/</kbd>
         </div>
-        <div class="seg" id="modeSeg">
-          <button data-v="list" title="Browse as a list (V)"><i data-i="list"></i><span>List</span></button>
-          <button data-v="slides" title="One role at a time (V)"><i data-i="slides"></i><span>Slides</span></button>
-        </div>
         <button class="btn" id="openFilters" title="All filters (F)"><i data-i="sliders"></i><span>Filters</span><span class="count" id="fCount"></span></button>
       </header>
       <div class="strip">
@@ -65,7 +62,6 @@
         </div>
         <article class="detail" id="detail"></article>
       </div>
-      <div class="deck" id="deck"></div>
     </section>
 
     <!-- SIGNALS -->
@@ -123,11 +119,30 @@
           <div class="pref"><span>Density</span><div class="seg" id="densitySeg"><button data-v="comfortable">Comfortable</button><button data-v="compact">Compact</button></div></div>
         </div>
         <form id="profileForm" class="card form">
-          <div class="card-h"><h3>Your profile</h3><span class="muted">Used for match ranking and email drafts</span></div>
-          <div class="row2"><label>Name<input name="name"></label><label>Link<input name="link" placeholder="Portfolio, GitHub or LinkedIn"></label></div>
-          <label>Skills<input name="skills" placeholder="Python, React, SQL"></label>
-          <label>Pitch<textarea name="pitch" rows="3" placeholder="Two or three lines about you"></textarea></label>
-          <div class="form-foot"><button class="btn primary">Save</button><span class="muted small" id="profileMsg"></span></div>
+          <div class="card-h"><h3>Profile</h3>
+            <div class="prof-bar"><select id="profSel" title="Switch profile"></select><button type="button" class="btn sm" id="profNew">New</button><button type="button" class="btn sm ghost" id="profRename">Rename</button><button type="button" class="btn sm ghost" id="profDel">Delete</button></div></div>
+          <p class="fine" style="margin:-6px 0 14px">Each profile has its own résumé, skills, saved views and pipeline. Roles are ranked against the open one.</p>
+          <div class="drop" id="cvDrop">
+            <input type="file" id="cvFile" accept=".pdf,.docx,.txt,.md,application/pdf" hidden>
+            <div><b>Import your résumé</b><span>PDF, Word (.docx) or text. It is read on this computer and never uploaded. <em id="cvNote"></em></span></div>
+            <div class="drop-act"><button type="button" class="btn" id="cvPick">Choose file</button><button type="button" class="link small" id="cvPaste">Paste text instead</button></div>
+          </div>
+          <p class="muted small" id="cvMsg" style="margin:8px 0 16px;min-height:1.2em"></p>
+          <div class="row2"><label>Name<input name="name" maxlength="80"></label><label>Headline<input name="headline" maxlength="120" placeholder="Computer science undergraduate"></label></div>
+          <div class="row2"><label>Link<input name="link" placeholder="Portfolio, GitHub or LinkedIn"></label><label>Email<input name="email" type="email" maxlength="120"></label></div>
+          <label>Skills <span class="muted" id="skillCount"></span>
+            <div class="chipset edit" id="skillChips"></div>
+            <input name="skillAdd" id="skillAdd" placeholder="Add a skill and press Enter" autocomplete="off" spellcheck="false">
+          </label>
+          <div class="row3"><label>Years of experience<input name="yearsExp" type="number" min="0" max="50" step="0.5" placeholder="0"></label>
+            <label>Highest degree<select name="degree"><option value="">Not set</option><option>School</option><option>Diploma</option><option>Bachelor</option><option>Master</option><option>PhD</option></select></label>
+            <label>Graduation year<input name="gradYear" type="number" min="1970" max="2100" placeholder="2027"></label></div>
+          <label>Education<textarea name="education" rows="2" placeholder="One per line: B.Tech Computer Science, IIT Delhi, 2023–2027"></textarea></label>
+          <label>Experience<textarea name="experience" rows="3" placeholder="One per line: Software Engineering Intern, Razorpay (May 2025 – Jul 2025)"></textarea></label>
+          <label>Projects<textarea name="projects" rows="3" placeholder="One per line: Project name (2026) · Flutter, FastAPI, WebRTC"></textarea></label>
+          <label class="check"><input type="checkbox" name="strictFit" checked><span>Hide roles that ask for more experience than I have (more than a year above mine, or senior titles)</span></label>
+          <label>Pitch<textarea name="pitch" rows="3" placeholder="Two or three lines about you. Used when drafting outreach emails."></textarea></label>
+          <div class="form-foot"><button class="btn primary">Save</button><button type="button" class="btn" id="rankNow">Show best matches</button><span class="muted small" id="profileMsg"></span></div>
         </form>
         <form id="pushForm" class="card form">
           <div class="card-h"><h3>Phone alerts</h3><span class="muted">Free, via the ntfy app</span></div>
@@ -138,10 +153,16 @@
           <div class="form-foot"><button class="btn primary">Save</button><button type="button" class="btn" id="testPush">Send test</button><span class="muted small" id="pushMsg"></span></div>
           <p class="fine">Public ntfy topics can be read by anyone who guesses the name, so pick a long random one.</p>
         </form>
+        <form id="liForm" class="card form">
+          <div class="card-h"><h3>LinkedIn searches</h3><span class="muted">Public listings, no account</span></div>
+          <p class="fine" style="margin-top:0">One search per line: <code>keywords | location</code>. Add <code>| remote</code> for remote-only. Up to 12; fewer is faster. Leave empty to turn LinkedIn off. Checked every 4 minutes; you get a push only for roles posted in the last 2 hours.</p>
+          <label><textarea name="searches" rows="6" spellcheck="false" placeholder="software engineer intern | India"></textarea></label>
+          <div class="form-foot"><button class="btn primary">Save</button><span class="muted small" id="liMsg"></span></div>
+        </form>
         <div class="card"><div class="card-h"><h3>Recent alerts</h3><span class="muted" id="alertNote"></span></div><div id="alertLog"></div></div>
         <div class="card"><div class="card-h"><h3>Blocked companies</h3></div><div id="blockedList" class="tokens" style="margin:0"></div></div>
         <div class="card"><div class="card-h"><h3>Keyboard</h3></div>
-          <div class="keys"><span><kbd>Ctrl K</kbd>Command menu</span><span><kbd>/</kbd>Search</span><span><kbd>F</kbd>Filters</span><span><kbd>V</kbd>List / slides</span><span><kbd>J</kbd><kbd>K</kbd>Next / previous</span><span><kbd>Enter</kbd>Apply</span><span><kbd>S</kbd>Save</span><span><kbd>E</kbd>Email</span><span><kbd>X</kbd>Hide</span><span><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd>Pass / later / save (slides)</span><span><kbd>Z</kbd>Undo (slides)</span><span><kbd>Esc</kbd>Close</span></div></div>
+          <div class="keys"><span><kbd>Ctrl K</kbd>Command menu</span><span><kbd>/</kbd>Search</span><span><kbd>F</kbd>Filters</span><span><kbd>J</kbd><kbd>K</kbd>Next / previous</span><span><kbd>Enter</kbd>Apply</span><span><kbd>S</kbd>Save</span><span><kbd>E</kbd>Email</span><span><kbd>X</kbd>Hide</span><span><kbd>Esc</kbd>Close</span></div></div>
       </div>
     </section>
   </main>
@@ -170,10 +191,41 @@
     <p class="muted small" id="viewSummary"></p>
     <label>Name<input name="name" required maxlength="60" placeholder="Remote ML internships"></label>
     <label class="check"><input type="checkbox" name="alert"><span id="alertLabel">Alert my phone on new matches</span></label>
+    <p class="fine">To send this view to someone else’s phone, save it, then use its bell in the sidebar.</p>
     <div class="form-foot end"><button type="button" class="btn ghost" id="viewCancel">Cancel</button><button value="ok" class="btn primary">Save</button></div>
   </form>
 </dialog>
 
+<!-- Alerts for one view -->
+<dialog id="bellDlg">
+  <form method="dialog" id="bellForm">
+    <h2>Alerts for <span id="bellName"></span></h2>
+    <p class="muted small">Where should new matches for this view be sent?</p>
+    <label class="check"><input type="radio" name="mode" value="off"><span>Nowhere (alerts off)</span></label>
+    <label class="check"><input type="radio" name="mode" value="default"><span id="bellDefault">My phone</span></label>
+    <label class="check"><input type="radio" name="mode" value="custom"><span>A separate channel, for someone else</span></label>
+    <div id="bellCustom" hidden>
+      <label>Channel<input name="channel" maxlength="200" placeholder="lookout-aisha-7fk2 or https://ntfy.sh/lookout-aisha-7fk2" autocomplete="off"></label>
+      <p class="fine">They install the free <b>ntfy</b> app and subscribe to this exact name. Anyone who knows the name can read it, so make it long and random.</p>
+    </div>
+    <div class="form-foot"><button type="button" class="btn ghost" id="bellTest">Send test</button><span class="muted small" id="bellMsg"></span><span style="flex:1"></span><button type="button" class="btn ghost" id="bellCancel">Cancel</button><button value="ok" class="btn primary">Save</button></div>
+  </form>
+</dialog>
+
+<!-- Profiles -->
+<dialog id="whoDlg"><h2>Profiles</h2><p class="muted small">Each has its own résumé, skills, saved views and pipeline.</p><div id="whoList" class="who-list"></div>
+  <div class="form-foot"><button type="button" class="btn" id="whoNew">New profile</button><button type="button" class="btn ghost" id="whoEdit">Edit this profile</button><span style="flex:1"></span><button type="button" class="btn ghost" id="whoClose">Close</button></div></dialog>
+<dialog id="nameDlg"><form method="dialog" id="nameForm"><h2 id="nameTitle">New profile</h2><p class="muted small" id="nameHint"></p>
+  <label>Name<input name="label" required maxlength="40" placeholder="Aisha, or ML roles"></label>
+  <div class="form-foot end"><button type="button" class="btn ghost" id="nameCancel">Cancel</button><button value="ok" class="btn primary">Save</button></div></form></dialog>
+<dialog id="cvDlg"><form method="dialog"><h2>Paste your résumé</h2><p class="muted small">Copy everything from your résumé and paste it here. It stays on this computer.</p>
+  <label><textarea id="cvText" rows="12" required spellcheck="false"></textarea></label>
+  <div class="form-foot end"><button type="button" class="btn ghost" id="cvCancel">Cancel</button><button value="ok" class="btn primary">Read it</button></div></form></dialog>
+<dialog id="welcomeDlg"><h2 id="welcomeTitle">Start with your résumé</h2>
+  <p class="muted" style="margin:6px 0 18px">Give Lookout your résumé and it fills in your skills, education and experience, then ranks every role against them. It is read on this computer and never uploaded.</p>
+  <input type="file" id="welcomeFile" accept=".pdf,.docx,.txt,.md,application/pdf" hidden>
+  <div class="form-foot"><button type="button" class="btn primary" id="welcomePick">Choose résumé</button><button type="button" class="btn" id="welcomePaste">Paste text</button><span style="flex:1"></span><button type="button" class="btn ghost" id="welcomeSkip">Not now</button></div>
+  <p class="muted small" id="welcomeMsg" style="margin:12px 0 0;min-height:1.2em"></p></dialog>
 <div class="toasts" id="toasts"></div>
 <script type="module" src="/app.js"></script>
 </body>

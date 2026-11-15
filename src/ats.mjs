@@ -80,7 +80,7 @@ export async function fetchBoard({ provider, board, company }) {
     return (data.content || []).map(j => ({
       sourceJobId: `sr:${board}:${j.id}`, title: j.name, company: company || j.company?.name || board, url: `https://jobs.smartrecruiters.com/${board}/${j.id}`,
       location: [j.location?.city, j.location?.region, j.location?.country].filter(Boolean).join(', '), remote: j.location?.remote,
-      typeHint: j.typeOfEmployment?.label || '', description: `${j.department?.label || ''} ${j.function?.label || ''}`.trim(),
+      typeHint: j.typeOfEmployment?.label || '', levelHint: j.experienceLevel?.label || j.experienceLevel?.id || '', description: `${j.department?.label || ''} ${j.function?.label || ''}`.trim(),
       postedAt: toIso(j.releasedDate), precision: 'minute',
     }));
   }
@@ -88,7 +88,7 @@ export async function fetchBoard({ provider, board, company }) {
     const { data } = await getJson(`https://${b}.recruitee.com/api/offers/`, { timeout: 15000 });
     return (data.offers || []).map(j => ({
       sourceJobId: `recruitee:${board}:${j.id}`, title: j.title, company: company || j.company_name || board, url: j.careers_url,
-      location: j.location || [j.city, j.country].filter(Boolean).join(', '), remote: j.remote, typeHint: j.employment_type_code || '',
+      location: j.location || [j.city, j.country].filter(Boolean).join(', '), remote: j.remote, typeHint: j.employment_type_code || '', levelHint: j.experience_code || '',
       description: htmlToText(`${j.description || ''}\n${j.requirements || ''}`), postedAt: toIso((j.published_at || j.created_at || '').replace(' UTC', 'Z').replace(' ', 'T')), precision: 'minute',
     }));
   }

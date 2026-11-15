@@ -1,3 +1,4 @@
+import { skillInfo } from './skills.mjs';
 // Shared by the browser UI and the server's alert matcher, so a saved filter set
 // behaves identically in the list and in phone alerts.
 
@@ -11,8 +12,13 @@ export const FIELDS = {
   'Science & Research': ['Research', 'Biotech / Life Sciences'],
   'Other': ['Other'],
 };
-export const TYPES = ['Internship', 'Full-time', 'Part-time', 'Contract', 'Apprenticeship'];
-export const LEVELS = ['Intern', 'Entry', 'Mid', 'Senior', 'Senior+'];
+// One either/or list instead of separate type and level filters (which were ANDed and cancelled each other out).
+export const STAGES = ['Internship', 'Apprenticeship', 'Entry', 'Mid', 'Senior', 'Senior+', 'Part-time', 'Contract'];
+/** Every stage tag a job carries: its career stage, plus Part-time / Contract when that applies. */
+export function stagesOf(job) {
+  const stage = job.type === 'Internship' || job.level === 'Intern' ? 'Internship' : job.type === 'Apprenticeship' ? 'Apprenticeship' : (job.level || 'Mid');
+  return job.type === 'Part-time' || job.type === 'Contract' ? [stage, job.type] : [stage];
+}
 export const VISA = ['Sponsors visa', 'No sponsorship', 'Citizens / clearance only', 'Not stated'];
 export const WORK_MODES = ['Remote', 'Hybrid', 'On-site', 'Not stated'];
 export const DEGREES = ["Bachelor's", "Master's", 'PhD', 'No degree required'];
@@ -20,7 +26,7 @@ export const FUND_STAGES = ['YC', 'Pre-seed / Seed', 'Series A', 'Series B+', 'R
 
 export const EMPTY_FILTERS = {
   q: '', excludeQ: '', age: 'all',
-  fields: [], excludeFields: [], specialties: [], types: [], levels: [],
+  fields: [], excludeFields: [], specialties: [], stages: [],
   expMin: null, expMax: null, expUnknown: true,
   visa: [], workModes: [], countries: [], degrees: [],
   payMin: null, payUnknown: true, terms: [],
@@ -36,6 +42,10 @@ export function normalizeFilters(f = {}) {
     const MAP = { 'AI / ML': ['AI / ML'], Data: ['Data Science', 'Data Engineering', 'Data Analytics'], Product: ['Product'], Design: ['Design'], 'Sales / Growth': ['Sales', 'Marketing'], Operations: ['Operations', 'Finance', 'HR / Recruiting'] };
     for (const c of f.categories) { if (c === 'Engineering') out.fields = [...new Set([...out.fields, 'Software & IT'])]; else out.specialties.push(...(MAP[c] || [])); }
   }
+  // older saved views had separate type + level lists; fold them into the single either/or list
+  const legacy = [...(f.types || []), ...(f.levels || [])].filter(x => x !== 'Full-time').map(x => x === 'Intern' ? 'Internship' : x);
+  out.stages = [...new Set([...(out.stages || []), ...legacy])].filter(x => STAGES.includes(x));
+  delete out.types; delete out.levels;
   delete out.remoteOnly; delete out.categories;
   for (const k of ['expMin', 'expMax', 'payMin']) { const v = out[k]; out[k] = v === '' || v === undefined || v === null || !Number.isFinite(Number(v)) ? null : Number(v); }
   return out;
@@ -106,8 +116,7 @@ function checks(f, ctx) {
   if (f.fields.length) add('fields', j => f.fields.includes(j.field));
   if (f.excludeFields.length) add('fields', j => !f.excludeFields.includes(j.field));
   if (f.specialties.length) add('specialties', j => f.specialties.includes(j.specialty));
-  if (f.types.length) add('types', j => f.types.includes(j.type));
-  if (f.levels.length) add('levels', j => f.levels.includes(j.level));
+  if (f.stages.length) add('stages', j => stagesOf(j).some(s => f.stages.includes(s)));
   if (f.expMin !== null || f.expMax !== null) add('exp', j => {
     if (j.yearsMin === null || j.yearsMin === undefined) return f.expUnknown;
     if (f.expMax !== null && j.yearsMin > f.expMax) return false;                  // asks for more than I have
@@ -123,7 +132,7 @@ function checks(f, ctx) {
   if (f.fundedOnly) add('fundedOnly', j => !!j.funded);
   if (f.fundStages.length) add('fundStages', j => f.fundStages.includes(fundStageOf(j)));
   if (f.hasContact) add('hasContact', j => !!(j.emails?.length || j.contactCount));
-  if (f.hideAgencies) add('hideAgencies', j => !AGENCY.test(j.company));
+  if (f.hideAgencies) add('hideAgencies', j => !j.middleman && !AGENCY.test(j.company));
   if (f.multiSource) add('sources', j => (j.sources?.length || 1) >= 2);
   if (f.sources.length) add('sources', j => j.sources.some(s => f.sources.includes(s.source)));
   if (f.excludeCompanies.length) { const ex = new Set(f.excludeCompanies.map(normCo)); add('excludeCompanies', j => !ex.has(normCo(j.company))); }
@@ -134,6 +143,7 @@ function checks(f, ctx) {
   if (f.hideTracked) add('hideTracked', j => !ctx.tracking?.[j.id]);
   if (!f.showHidden) add('_hidden', j => { const t = ctx.tracking?.[j.id]; return !(t?.hidden || t?.status === 'hidden'); });
   if (ctx.blocked?.size) add('_blocked', j => !ctx.blocked.has(normCo(j.company)));
+  if (ctx.profile && ctx.profile.strictFit !== false && typeof ctx.profile.yearsExp === 'number') add('_fit', j => !overReach(j, ctx.profile));
   if (f.q || f.excludeQ) {
     const clauses = textClauses(f.q); const ex = f.excludeQ.toLowerCase().split(/[,\n]/).map(s => s.trim()).filter(Boolean);
     add('q', j => {
@@ -174,6 +184,18 @@ export function evaluate(jobs, f, ctx = {}) {
   return { matched, nearMiss };
 }
 
+/**
+ * A role that plainly wants more experience than the profile has: it states a minimum more than a year
+ * above yours, or states none but is titled senior. Applied to every view and alert unless switched off.
+ */
+export function overReach(job, profile) {
+  const y = profile?.yearsExp; if (typeof y !== 'number') return false;
+  if (typeof job.yearsMin === 'number') return job.yearsMin > y + 1;
+  if (job.level === 'Senior+') return y < 5;
+  if (job.level === 'Senior') return y < 3;
+  return false;
+}
+
 /** Relevance score used for "Best match" sorting. Higher = more actionable. */
 export function score(job, profile = {}, now = Date.now()) {
   let s = 0;
@@ -183,14 +205,31 @@ export function score(job, profile = {}, now = Date.now()) {
   if (job.level === 'Intern' || job.level === 'Entry') s += 8;
   if (job.emails?.length || job.contactCount) s += 6;                  // reachable
   s += Math.min(6, (job.sources?.length || 1) - 1) * 2;               // corroborated by several sources
-  s += skillMatch(job, profile.skills || []) * 0.3;
+  const ft = fit(job, profile);
+  s += ft.pct * 0.3;
+  s -= Math.min(20, ft.expGap * 6);                                    // asks for more years than you have
   return s;
 }
 
-/** 0-100: share of the job's listed skills you have (weighted toward requirement coverage). */
-export function skillMatch(job, mine = []) {
-  if (!mine.length || !job.skills?.length) return 0;
-  const have = new Set(mine.map(x => x.toLowerCase()));
-  const hit = job.skills.filter(x => have.has(skillName(x).toLowerCase())).length;
-  return Math.round(100 * hit / Math.min(job.skills.length, 8));
+/**
+ * How a role lines up with a profile. Technical skills decide the match; general ones ("Sales",
+ * "Operations") only count when a role lists nothing technical.
+ */
+const mineCache = new WeakMap();
+const canon = n => skillKey(skillInfo(n).canonical);
+export function fit(job, profile = {}) {
+  const list = profile.skills || []; let mine = mineCache.get(list);
+  if (!mine) { mine = new Set(list.map(canon)); mineCache.set(list, mine); }
+  const tech = [], general = [];
+  for (const s of job.skills || []) { const n = skillName(s); (skillInfo(n).tech ? tech : general).push(n); }
+  const has = n => mine.has(canon(n));
+  const have = tech.filter(has), missing = tech.filter(n => !has(n)), genHave = general.filter(has);
+  let pct = 0;
+  if (mine.size && tech.length) pct = Math.round(100 * Math.min(1, have.length / Math.min(tech.length, 8)));
+  else if (mine.size && general.length) pct = Math.round(60 * Math.min(1, genHave.length / Math.min(general.length, 8)));
+  const y = profile.yearsExp, need = job.yearsMin;
+  const expGap = typeof y === 'number' && typeof need === 'number' ? Math.max(0, need - y) : 0;
+  return { pct, have, missing, general, genHave, expGap };
 }
+/** 0-100: how much of what the role asks for you have. */
+export function skillMatch(job, mine = []) { return fit(job, { skills: mine }).pct; }

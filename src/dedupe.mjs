@@ -2,6 +2,7 @@
 //  (a) their canonical apply/listing URLs match, or
 //  (b) normalized company + normalized title match and their locations don't conflict.
 import { canonicalUrl } from './util.mjs';
+import { bestLink, linkRank } from './root.mjs';
 
 const COMPANY_NOISE = /\b(inc|incorporated|llc|l\.l\.c|ltd|limited|pvt|private|corp|corporation|co|company|gmbh|s\.a|sa|plc|bv|ag|technologies|technology|tech|labs?|software|solutions|systems|ai|hq|group|holdings|the)\b/g;
 export function normCompany(name = '') {
@@ -35,7 +36,7 @@ export function fingerprint(job) { return `${normCompany(job.company)}|${normTit
 const CITY_ALIAS = { sf: 'san francisco', 'san francisco bay area': 'san francisco', nyc: 'new york', 'new york city': 'new york', bangalore: 'bengaluru', gurgaon: 'gurugram', 'washington dc': 'washington', 'washington d.c.': 'washington' };
 function cities(loc = '') {
   return new Set(String(loc).toLowerCase().split(/;|\||\/| or /).map(x => x.split(',')[0].trim()).map(x => CITY_ALIAS[x] || x)
-    .filter(x => x && x.length > 1 && !/remote|anywhere|multiple|locations?|hybrid|united states|usa|india|canada|uk|europe|worldwide/.test(x)));
+    .filter(x => x && x.length > 1 && !/\b(?:remote|anywhere|multiple|locations?|hybrid|united states|usa|india|canada|uk|europe|worldwide)\b/.test(x)));
 }
 function locationsConflict(a, b) {
   const ca = a.country, cb = b.country;
@@ -46,6 +47,8 @@ function locationsConflict(a, b) {
   for (const c of A) if (B.has(c)) return false;
   return true;
 }
+
+const REPOST_GAP_DAYS = 21;
 
 export class Deduper {
   constructor() { this.byUrl = new Map(); this.byFp = new Map(); }
@@ -63,7 +66,9 @@ export class Deduper {
   match(posting, getJob) {
     for (const u of [posting.url, posting.applyUrl]) { const id = u && this.byUrl.get(canonicalUrl(u)); if (id) return id; }
     const termsConflict = (a, b) => a.terms?.length && b.terms?.length && !a.terms.some(t => b.terms.includes(t)); // Summer vs Winter internship
-    for (const id of this.byFp.get(fingerprint(posting)) || []) { const j = getJob(id); if (j && !locationsConflict(j, posting) && !termsConflict(j, posting)) return id; }
+    // Same title at the same company weeks later is a new opening (or a re-post worth seeing again), not the old one.
+    const farApart = (a, b) => a.postedAt && b.postedAt && Math.abs(Date.parse(a.postedAt) - Date.parse(b.postedAt)) > REPOST_GAP_DAYS * 864e5;
+    for (const id of this.byFp.get(fingerprint(posting)) || []) { const j = getJob(id); if (j && !locationsConflict(j, posting) && !termsConflict(j, posting) && !farApart(j, posting)) return id; }
     return null;
   }
 }
@@ -78,6 +83,10 @@ export function mergeInto(job, p) {
   if (better && p.postedAt) { job.postedAt = p.postedAt; job.precision = p.precision; }
   if ((p.description || '').length > (job.description || '').length) { job.description = p.description; job.requirements = p.requirements; }
   if (!job.applyUrl && p.applyUrl) job.applyUrl = p.applyUrl;
+  // Apply opens the most direct link on file: the employer's own listing beats any board's copy of it.
+  { const best = bestLink(job.urls); if (best && linkRank(best) > linkRank(job.applyUrl || job.url)) job.applyUrl = best; }
+  if (!job.levelHint && p.levelHint) job.levelHint = p.levelHint;
+  if (p.type === 'Internship' && job.type !== 'Internship' && job.level !== 'Senior' && job.level !== 'Senior+') { job.type = 'Internship'; job.level = 'Intern'; }
   if (!job.salary && p.salary) job.salary = p.salary;
   if ((!job.companyUrl) && p.companyUrl) job.companyUrl = p.companyUrl;
   if (!job.companyMeta && p.companyMeta) job.companyMeta = p.companyMeta;

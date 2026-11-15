@@ -1,4 +1,5 @@
-import { matches, evaluate, freshness, score, skillMatch, effectiveTime, normalizeFilters, normCo, EMPTY_FILTERS, FIELDS, TYPES, LEVELS, VISA, WORK_MODES, DEGREES, FUND_STAGES, AGE_MS } from './filters.mjs';
+import { skillInfo, SKILL_GROUPS } from './skills.mjs';
+import { matches, evaluate, freshness, score, skillMatch, fit, effectiveTime, normalizeFilters, normCo, EMPTY_FILTERS, FIELDS, STAGES, stagesOf, VISA, WORK_MODES, DEGREES, FUND_STAGES, AGE_MS } from './filters.mjs';
 
 // ───────────────────────────────────────────── utilities
 const $ = s => document.querySelector(s);
@@ -32,10 +33,6 @@ const ICONS = {
   trash: '<path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
   building: '<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4M8 6h.01M16 6h.01M12 6h.01M12 10h.01M12 14h.01M16 10h.01M16 14h.01M8 10h.01M8 14h.01"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/>', ban: '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
-  list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
-  slides: '<path d="M2 5v14"/><rect width="12" height="18" x="6" y="3" rx="2"/><path d="M22 5v14"/>',
-  undo: '<path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>',
-  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
   sort: '<path d="m21 16-4 4-4-4M17 20V4M3 8l4-4 4 4M7 4v16"/>',
   eye: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
 };
@@ -83,8 +80,8 @@ const payStr = j => {
 };
 const visaShort = { 'Sponsors visa': ['Sponsors visa', 'good'], 'No sponsorship': ['No sponsorship', 'warn'], 'Citizens / clearance only': ['Citizens only', 'warn'] };
 const FIELD_LABEL = { 'Core Engineering': 'Hardware & physical eng.' };
-const LEVEL_LABEL = { 'Senior+': 'Lead / Principal', Entry: 'Entry / new grad' };
-const fl$ = x => FIELD_LABEL[x] || x; const lv$ = x => LEVEL_LABEL[x] || x;
+const LEVEL_LABEL = { 'Senior+': 'Lead / Principal', Entry: 'Entry / new grad', Mid: 'Mid / not stated' };
+const fl$ = x => FIELD_LABEL[x] || x; const lv$ = x => LEVEL_LABEL[x] || x; const st$ = lv$;
 const srcName = id => S.meta?.sources.find(s => s.id === id)?.name || id;
 const profile = () => S.meta?.settings?.profile || {};
 
@@ -112,22 +109,20 @@ function tickTo(el, to) {
 // ───────────────────────────────────────────── state
 const S = {
   jobs: [], meta: null, view: 'jobs',
-  filters: normalizeFilters(ls.get('lk2.filters', { age: '7d', fields: ['Software & IT'] })),
-  activeView: ls.get('lk2.view', null), sort: ls.get('lk2.sort', 'new'),
-  mode: ls.get('lk2.mode', 'list'), // 'list' or 'slides'
+  filters: normalizeFilters({}), // every launch starts with everything; saved views are one click away
+  activeView: null, sort: ls.get('lk2.sort', 'new'),
   sel: null, limit: 150, pending: [], sigSeg: 'news', openSecs: new Set(ls.get('lk2.secs', ['age', 'field', 'exp', 'visa'])),
 };
 let blockedCache = { src: null, set: new Set() };
 const ctx = () => {
   const b = S.meta?.blockedCompanies || [];
   if (blockedCache.src !== b) blockedCache = { src: b, set: new Set(b.map(normCo)) };
-  return { tracking: S.meta?.tracking || {}, blocked: blockedCache.set };
+  return { tracking: S.meta?.tracking || {}, blocked: blockedCache.set, profile: S.meta?.settings?.profile };
 };
 function setFilters(patch, { keepView = false } = {}) {
   S.filters = normalizeFilters({ ...S.filters, ...patch });
   if (!keepView) { const v = S.meta?.filterSets.find(x => x.id === S.activeView); if (v && JSON.stringify(normalizeFilters(v.filters)) !== JSON.stringify(S.filters)) { /* view modified */ } }
   ls.set('lk2.filters', S.filters); ls.set('lk2.view', S.activeView); S.limit = 150;
-  deck.top = deck.next = null; // new filters: slides start from the top again
   if ($('#q').value.trim() !== (S.filters.q || '') && document.activeElement !== $('#q')) $('#q').value = S.filters.q || ''; // keep box and chip in sync
   refreshJobs();
 }
@@ -173,7 +168,7 @@ function chipList(f = S.filters) {
   if (f.age !== 'all') add('age', 'Posted', AGE_LABEL[f.age], { age: 'all' });
   arr('fields', 'Field', fl$);
   if (f.excludeFields.length) add('excludeFields', 'Not', join(f.excludeFields.map(fl$)), { excludeFields: [] }, { neg: true, short: `No ${join(f.excludeFields.map(fl$))}` });
-  arr('specialties', 'Role'); arr('types', 'Type'); arr('levels', 'Level', lv$);
+  arr('specialties', 'Role'); arr('stages', 'Stage', st$);
   if (f.expMin !== null || f.expMax !== null) add('exp', 'Experience', `${f.expMin ?? 0}–${f.expMax === null ? '10+' : f.expMax} yrs${f.expUnknown ? '' : ', stated only'}`, { expMin: null, expMax: null, expUnknown: true });
   arr('visa', 'Visa'); arr('workModes', 'Mode'); arr('countries', 'Location', c => c === 'Unknown' ? 'Not stated' : c); arr('degrees', 'Degree');
   if (f.payMin !== null) add('pay', 'Pay', `≥ $${f.payMin}k/yr${f.payUnknown ? ' or unlisted' : ''}`, { payMin: null, payUnknown: true }, { short: `≥ $${f.payMin}k` });
@@ -224,16 +219,15 @@ function renderQuick() {
 }
 
 // ───────────────────────────────────────────── list
-// Small facts as pills. Rows show the first three (CSS); slides show them all.
-function pillsFor(j, where = 'row') {
+// Small facts as pills. Comfortable rows show the first three (CSS); compact rows show all.
+function pillsFor(j) {
   const p = {};
   if (j.funded) { const l = j.funding?.label || 'Funded'; p.fund = `<span class="pill ${/^YC\b/.test(l) ? '' : 'live'}">${esc(l)}</span>`; } // fresh rounds get the accent; a YC batch is neutral
   const v = visaShort[j.visa]; if (v) p.visa = `<span class="pill ${v[1]}">${v[0]}</span>`;
   const ps = payStr(j); if (ps) p.pay = `<span class="pill">${esc(ps)}</span>`;
   const y = years(j); if (y && !(j.type === 'Internship' && j.yearsMin === 0)) p.yrs = `<span class="pill">${esc(y)}</span>`;
   if (j.workMode === 'Remote' || j.workMode === 'Hybrid') p.mode = `<span class="pill">${esc(j.workMode)}</span>`;
-  if (where === 'slide') p.type = `<span class="pill">${esc(j.type === 'Internship' ? 'Internship' : j.level === 'Entry' ? 'Entry level' : j.type)}</span>`;
-  const order = where === 'slide' ? ['type', 'yrs', 'pay', 'mode', 'visa', 'fund'] : ['fund', 'visa', 'pay', 'yrs', 'mode'];
+  const order = ['fund', 'visa', 'pay', 'yrs', 'mode'];
   return order.map(k => p[k]).filter(Boolean).join('');
 }
 function rowHtml(j, { arrive = false } = {}) {
@@ -259,19 +253,24 @@ function renderList(arriveIds = new Set()) {
   $('#emptyClear')?.addEventListener('click', () => { S.activeView = null; $('#q').value = ''; setFilters({ ...EMPTY_FILTERS }); });
   $('#nJobs').textContent = fmt(S.jobs.length);
   S.pending = []; updatePill();
-  renderDeck();
 }
 const list = $('#list');
 list.addEventListener('click', e => { const r = e.target.closest('.row'); if (r) select(r.dataset.id, true); });
 list.addEventListener('mousemove', e => { const r = e.target.closest('.row'); if (!r) return; const b = r.getBoundingClientRect(); r.style.setProperty('--mx', `${e.clientX - b.left}px`); r.style.setProperty('--my', `${e.clientY - b.top}px`); });
 list.addEventListener('mouseleave', () => $$('.row', list).forEach(r => r.style.removeProperty('--mx')));
-function updatePill() { const n = S.pending.length; const p = $('#newPill'); p.classList.toggle('hidden', !n); p.innerHTML = `${ic('arrowup')}${n} new`; document.title = n ? `(${n}) Lookout` : 'Lookout'; }
-$('#newPill').onclick = () => { const ids = new Set(S.pending); list.scrollTop = 0; renderList(ids); };
+function updatePill() { const n = S.pending.length; const p = $('#newPill'); p.classList.toggle('hidden', !n); p.textContent = `${n} new · show`; document.title = n ? `(${n}) Lookout` : 'Lookout'; }
+$('#newPill').onclick = () => {
+  const ids = new Set(S.pending); renderList(ids);
+  const idx = current.findIndex(j => ids.has(j.id));
+  if (idx < 0) return toast('Those roles don’t match your filters any more', { ms: 3000 });
+  if (idx >= S.limit) { S.limit = idx + 50; renderList(ids); }
+  $(`.row[data-id="${current[idx].id}"]`, list)?.scrollIntoView({ block: 'center' });
+};
 
 // sort + search
 function renderSort() { $('#sortBtn').innerHTML = `${ic('sort')}<span>${S.sort === 'best' ? 'Best match' : 'Newest'}</span>`; $('#sortBtn').title = 'Switch between newest and best match'; }
 $('#sortBtn').onclick = () => {
-  S.sort = S.sort === 'new' ? 'best' : 'new'; ls.set('lk2.sort', S.sort); deck.top = deck.next = null; renderSort(); renderList();
+  S.sort = S.sort === 'new' ? 'best' : 'new'; ls.set('lk2.sort', S.sort); renderSort(); renderList();
   if (S.sort === 'best' && !profile().skills?.length) toast('Add your skills to rank by fit', { action: ['Add skills', () => { location.hash = '#settings'; }] });
 };
 $('#q').value = S.filters.q || '';
@@ -327,6 +326,8 @@ function renderDetail(j) {
       <div class="d-id"><div class="d-co">${j.domain ? `<a href="https://${esc(j.domain)}" target="_blank" rel="noreferrer">${esc(j.company)}</a>` : esc(j.company)}</div>${loc ? `<div class="d-loc">${esc(loc)}</div>` : ''}</div>
       <button class="icon-btn" id="dClose" title="Close (Esc)">${ic('x')}</button></div>
     <h2 class="d-title">${esc(j.title)}</h2>
+    ${j.middleman ? `<p class="mid">${ic('layers')}<span>Re-posted by <b>${esc(j.company)}</b>${j.middleman.employer ? ` for <b>${esc(j.middleman.employer)}</b>` : ''}. The original listing was not found, so Apply goes through them. <a class="link" href="https://www.google.com/search?q=${encodeURIComponent(`${j.middleman.employer || ''} careers "${j.title.replace(/\s*\(.*?\)\s*/g, ' ').trim()}"`)}" target="_blank" rel="noreferrer">Search for the original</a></span></p>` : ''}
+    ${j.reposts?.length ? `<p class="mid ok">${ic('layers')}<span>This is the employer's own listing. Also re-posted by ${j.reposts.map(r => esc(r.company)).join(', ')}; those copies are folded in here.</span></p>` : ''}
     <div class="d-actions">
       <a class="btn primary lg" href="${esc(apply)}" target="_blank" rel="noreferrer" title="Open the listing (Enter)">Apply ${ic('external')}</a>
       <button class="btn lg" id="dSave" title="Save (S)">${saveBtnHtml(tr.status === 'saved')}</button>
@@ -339,7 +340,10 @@ function renderDetail(j) {
   <div class="d-body">
     <div class="facts">${factsFor(j)}</div>
     ${reqs.length ? `<section class="sec"><h4>Requirements</h4><ul class="reqs ${reqs.length > 6 ? 'clamped' : ''}" id="reqs">${reqs.map(r => `<li>${esc(r)}</li>`).join('')}</ul>${reqs.length > 6 ? `<button class="link small" id="reqMore">Show all ${reqs.length}</button>` : ''}</section>` : ''}
-    ${j.skills.length ? `<section class="sec"><h4>Skills${p.skills?.length ? `<span class="match-pct">${skillMatch(j, p.skills)}% match</span>` : ''}</h4><div class="chipset">${j.skills.map(s => `<span class="sk ${mine.has(s.name.toLowerCase()) ? 'hit' : ''}">${esc(s.name)}</span>`).join('')}</div></section>` : ''}
+    ${j.skills.length ? (() => {
+      const ft = fit(j, p); const techN = ft.have.length + ft.missing.length; const chip = (n, cls) => `<span class="sk ${cls}">${esc(n)}</span>`;
+      return `<section class="sec"><h4>Skills${p.skills?.length && techN ? `<span class="match-pct">You have ${ft.have.length} of ${techN}</span>` : ''}</h4>${techN ? `<div class="chipset">${ft.have.map(n => chip(n, 'hit')).join('')}${ft.missing.map(n => chip(n, 'tech')).join('')}</div>` : ''}${ft.general.length ? `<div class="chipset gen">${ft.general.map(n => chip(n, ft.genHave.includes(n) ? 'gen hit' : 'gen')).join('')}</div>` : ''}${ft.expGap >= 1 ? `<p class="fine">Asks for ${j.yearsMin}+ years of experience; your profile has ${p.yearsExp}.</p>` : ''}</section>`;
+    })() : ''}
     <section class="sec"><h4>Contact<button class="icon-btn sm" id="cRe" title="Check again">${ic('refresh')}</button></h4><div id="contacts"><span class="spin"></span></div></section>
     <section class="sec"><h4>Status</h4><div class="status-row">${STATUSES.map(([v, l]) => `<button data-st="${v}" class="${tr.status === v ? 'on' : ''}">${l}</button>`).join('')}</div>
       <textarea class="note" id="note" rows="2" placeholder="Notes">${esc(tr.note || '')}</textarea></section>
@@ -380,7 +384,7 @@ function draft(j, c) {
   const to = c?.emails?.[0]?.email || j.emails?.[0] || c?.guesses?.[0]?.email || '';
   const first = c?.founders?.[0]?.name?.split(' ')[0];
   const mine = new Set((p.skills || []).map(s => s.toLowerCase()));
-  const overlap = j.skills.filter(s => mine.has(s.name.toLowerCase())).map(s => s.name).slice(0, 4);
+  const overlap = fit(j, p).have.slice(0, 4);
   const subject = `${j.title}${p.name ? ` · ${p.name}` : ''}`;
   const body = [`Hi ${first || `${j.company} team`},`, '',
     `I saw ${j.company} is hiring for ${j.title}${j.funding?.at ? ` (and congrats on the ${j.funding.label})` : ''}. I’d love to be considered.`, '',
@@ -405,10 +409,9 @@ async function track(id, status, note, quiet) {
   hydrateIcons(list);
   if (S.sel === id && S.detailJob) { $$('[data-st]').forEach(b => b.classList.toggle('on', b.dataset.st === status)); const sb = $('#dSave'); if (sb) sb.innerHTML = saveBtnHtml(status === 'saved'); }
   renderNav(); if (S.view === 'pipeline') renderPipeline();
-  if (S.mode === 'slides' && !deck.busy) renderDeck(); // tracked from Details: it leaves the deck
   if (!quiet && status && status !== 'hidden') toast(`${statusLabel(status)}: ${j?.title || ''}`, { undo: () => track(id, prev?.status || '', prev?.note, true) });
 }
-function selectNextAfter(idx) { renderList(); if (S.mode === 'slides') { S.sel = null; detailEmpty(); return; } const next = current[Math.min(idx, current.length - 1)]; if (next) select(next.id); else { S.sel = null; detailEmpty(); } }
+function selectNextAfter(idx) { renderList(); const next = current[Math.min(idx, current.length - 1)]; if (next) select(next.id); else { S.sel = null; detailEmpty(); } }
 function hideJob(id) {
   const idx = current.findIndex(j => j.id === id);
   setHidden(id, true).then(() => { selectNextAfter(idx); toast('Role hidden', { undo: () => setHidden(id, false).then(() => renderList()) }); });
@@ -432,6 +435,8 @@ const sec = (id, title, sum, body) => `<details class="fs" data-sec="${id}" ${S.
 function renderSheet() {
   const f = S.filters; const open = id => S.openSecs.has(id);
   const scroll = $('#sheetBody').scrollTop;
+  // The inner lists (skills, countries, roles) scroll on their own; remember where each one was.
+  const listScroll = Object.fromEntries($$('[data-list]', $('#sheetBody')).map(l => [l.dataset.list, l.scrollTop]));
   // Preserve typing state across re-renders: search boxes, focus and caret.
   const searches = Object.fromEntries($$('[data-search]', $('#sheetBody')).map(i => [i.dataset.search, i.value]));
   const ae = document.activeElement; const focusKey = ae && $('#sheetBody').contains(ae) ? (ae.dataset.search ? `[data-search="${ae.dataset.search}"]` : ae.id ? `#${ae.id}` : null) : null;
@@ -449,15 +454,12 @@ function renderSheet() {
     const fieldsShown = f.fields.length ? f.fields : Object.keys(FIELDS).filter(x => !f.excludeFields.includes(x));
     parts.push(sec('spec', 'Role', f.specialties.length ? `${f.specialties.length} selected` : '', `<input class="fs-search" data-search="spec" placeholder="Filter roles…"><div class="scroll-opts" data-list="spec">${fieldsShown.map(fl => `<div class="sub-group">${esc(fl)}</div>` + FIELDS[fl].map(s => opt('specialties', s, s, counts.get(s) || 0, f.specialties.includes(s))).join('')).join('')}</div>`)); }
   // experience
-  { const lo = f.expMin ?? 0, hi = f.expMax ?? 10;
-    parts.push(sec('exp', 'Experience', (f.expMin !== null || f.expMax !== null) ? `${lo}–${hi === 10 ? '10+' : hi}` : '', `<div class="presets"><button data-exp="0,1">New grad</button><button data-exp="0,2">0–2</button><button data-exp="2,5">2–5</button><button data-exp="5,10">5+</button><button data-exp="">Any</button></div>
+  { const lo = f.expMin ?? 0, hi = f.expMax ?? 10; const stc = open('exp') ? countsFor('stages', stagesOf) : new Map();
+    parts.push(sec('exp', 'Experience', [f.stages.map(st$).join(', '), (f.expMin !== null || f.expMax !== null) ? `${lo}–${hi === 10 ? '10+' : hi} yrs` : ''].filter(Boolean).join(' · '), `<p class="tri-help">Pick any. A role shows up if it matches one of them.</p><div class="opts" style="grid-template-columns:1fr 1fr;gap:1px 10px">${STAGES.map(t => opt('stages', t, st$(t), stc.get(t) || 0, f.stages.includes(t))).join('')}</div><div class="sub-group" style="padding:14px 0 6px 8px">Years asked for</div><div class="presets"><button data-exp="0,1">New grad</button><button data-exp="0,2">0–2</button><button data-exp="2,5">2–5</button><button data-exp="5,10">5+</button><button data-exp="">Any</button></div>
       <div class="range"><div class="range-vals"><span>Asks for <b id="expLo">${lo}</b> to <b id="expHi">${hi === 10 ? '10+' : hi}</b> years</span></div>
       <div class="dual"><div class="track"></div><div class="fill" id="expFill"></div><input type="range" min="0" max="10" step="1" value="${lo}" id="expMinR"><input type="range" min="0" max="10" step="1" value="${hi}" id="expMaxR"></div>
       <div class="ticks"><span>0</span><span>2</span><span>4</span><span>6</span><span>8</span><span>10+</span></div></div>
       <label class="mini-check"><input type="checkbox" id="expUnknown" ${f.expUnknown ? 'checked' : ''}>Include roles that don’t say</label>`)); }
-  // type & level
-  { const tc = open('type') ? countsFor('types', j => j.type) : new Map(); const lc = open('type') ? countsFor('levels', j => j.level) : new Map();
-    parts.push(sec('type', 'Type & level', [...f.types, ...f.levels].join(', '), `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div class="opts">${TYPES.map(t => opt('types', t, t, tc.get(t) || 0, f.types.includes(t))).join('')}</div><div class="opts">${LEVELS.filter(t => t !== 'Intern' || f.levels.includes(t)).map(t => opt('levels', t, lv$(t), lc.get(t) || 0, f.levels.includes(t))).join('')}</div></div>`)); }
   // visa
   { const c = open('visa') ? countsFor('visa', j => j.visa || 'Not stated') : new Map();
     parts.push(sec('visa', 'Visa', f.visa.join(', '), `<div class="presets"><button data-visa="need" title="Keeps roles that sponsor or don’t say. Drops no-sponsorship and citizens-only roles.">I need sponsorship</button><button data-visa="sponsor">Confirmed sponsors</button><button data-visa="">Any</button></div><div class="opts">${VISA.map(v => opt('visa', v, v, c.get(v) || 0, f.visa.includes(v))).join('')}</div>`)); }
@@ -486,14 +488,19 @@ function renderSheet() {
   // skills
   { const c = open('skills') ? countsFor('skills', j => j.skills.map(skillN)) : new Map();
     const list = [...c].sort((a, b) => b[1] - a[1]).slice(0, 300); for (const x of f.skills) if (!c.has(x)) list.unshift([x, 0]);
-    parts.push(sec('skills', 'Skills', f.skills.length ? `${f.skills.length} · ${f.skillsAll ? 'all' : 'any'}` : '', `<div class="seg full" data-seg="skillsAll" style="margin-bottom:8px"><button data-v="any" class="${!f.skillsAll ? 'on' : ''}">Has any</button><button data-v="all" class="${f.skillsAll ? 'on' : ''}">Has all</button></div><input class="fs-search" data-search="skills" placeholder="Filter skills…"><div class="scroll-opts opts" data-list="skills">${list.map(([v, n]) => opt('skills', v, v, n, f.skills.includes(v))).join('')}</div>`)); }
+    // Technical skills first, grouped; general words ("Sales", "Operations") sit at the bottom, quieter.
+    const all = [...c].sort((a, b) => b[1] - a[1]); for (const x of f.skills) if (!c.has(x)) all.unshift([x, 0]);
+    const groups = new Map(SKILL_GROUPS.map(g => [g, []]));
+    for (const [v, n] of all) { const gi = skillInfo(v).group; const g = groups.get(gi) || groups.get('Tools & practices'); if (g.length < (gi === 'General' ? 30 : 60) || f.skills.includes(v)) g.push([v, n]); }
+    const mineN = (profile().skills || []).length;
+    parts.push(sec('skills', 'Skills', f.skills.length ? `${f.skills.length} · ${f.skillsAll ? 'all' : 'any'}` : '', `<div class="seg full" data-seg="skillsAll" style="margin-bottom:8px"><button data-v="any" class="${!f.skillsAll ? 'on' : ''}">Has any</button><button data-v="all" class="${f.skillsAll ? 'on' : ''}">Has all</button></div><div class="presets"><button data-myskills title="${mineN ? 'Tick every technical skill on your profile' : 'Add skills to your profile first (Settings)'}">My skills</button><button data-noskills>Clear</button></div><input class="fs-search" data-search="skills" placeholder="Filter skills…"><div class="scroll-opts opts" data-list="skills">${[...groups].filter(([, l]) => l.length).map(([g, l]) => `<div class="sub-group${g === 'General' ? ' gen' : ''}">${g === 'General' ? 'General, not technical' : esc(g)}</div>` + l.map(([v, n]) => opt('skills', v, v, n, f.skills.includes(v))).join('')).join('')}</div>`)); }
   // sources
   { const c = open('src') ? countsFor('sources', j => j.sources.map(s => s.source)) : new Map();
     const srcs = (S.meta?.sources || []).filter(s => s.kind === 'jobs');
     parts.push(sec('src', 'Source', f.sources.length ? `${f.sources.length} selected` : f.multiSource ? '2+ sources' : '', `<label class="mini-check" style="margin:0 0 8px"><input type="checkbox" data-bool="multiSource" ${f.multiSource ? 'checked' : ''}>Seen on 2+ sources</label><div class="opts">${srcs.map(s => opt('sources', s.id, s.name, c.get(s.id) || 0, f.sources.includes(s.id))).join('')}</div>`)); }
   // keywords + misc
   parts.push(sec('kw', 'More', [f.excludeQ && 'keywords', f.hideAgencies && 'no agencies', f.hasContact && 'has email', f.hideTracked && 'hide tracked'].filter(Boolean).join(', '), `<label class="kw-label">Hide roles mentioning<textarea id="exQ" rows="2" placeholder="senior, staff, clearance">${esc(f.excludeQ)}</textarea></label>
-    <label class="mini-check"><input type="checkbox" data-bool="hideAgencies" ${f.hideAgencies ? 'checked' : ''}>Hide staffing agencies</label>
+    <label class="mini-check"><input type="checkbox" data-bool="hideAgencies" ${f.hideAgencies ? 'checked' : ''}>Hide recruiters and re-posted roles</label>
     <label class="mini-check"><input type="checkbox" data-bool="hasContact" ${f.hasContact ? 'checked' : ''}>Has a contact email</label>
     <label class="mini-check"><input type="checkbox" data-bool="hideTracked" ${f.hideTracked ? 'checked' : ''}>Not in my pipeline yet</label>`));
 
@@ -501,6 +508,7 @@ function renderSheet() {
   $('#sheetBody').scrollTop = scroll;
   wireSheet(); syncExpFill();
   for (const [k, v] of Object.entries(searches)) { const inp = $(`[data-search="${k}"]`, $('#sheetBody')); if (inp && v) { inp.value = v; inp.dispatchEvent(new Event('input')); } }
+  for (const [k, v] of Object.entries(listScroll)) { const l = $(`[data-list="${k}"]`, $('#sheetBody')); if (l && v) l.scrollTop = v; }
   if (focusKey) { const el = $(focusKey, $('#sheetBody')); if (el) { el.focus({ preventScroll: true }); if (caret && 'setSelectionRange' in el) try { el.setSelectionRange(...caret); } catch { } } }
   $('#sheetDone').textContent = `Show ${fmt(current.length)}`;
 }
@@ -556,13 +564,13 @@ function renderViews() {
   $('#views').innerHTML = sets.length ? sets.map(v => {
     const m = evaluate(S.jobs, v.filters, c).matched; const n = m.length; let fresh = 0;
     for (const j of m) if (isHot(j)) fresh++;
-    return `<div class="vw ${S.activeView === v.id ? 'on' : ''} ${v.alert ? 'alerting' : ''}" data-id="${v.id}" title="${esc(v.name)} · ${fmt(n)} roles${fresh ? `, ${fresh} in the last hour` : ''}${v.alert ? ' · phone alerts on' : ''}"><span class="dot"></span><span class="nm">${esc(v.name)}</span><span class="ct">${fresh ? `<b class="new">+${fresh}</b> ` : ''}${fmt(n)}</span>
-      <span class="acts"><button class="icon-btn sm ${v.alert ? 'on' : ''}" data-bell title="${v.alert ? 'Turn phone alerts off' : 'Turn phone alerts on'}">${ic('bell')}</button><button class="icon-btn sm" data-del title="Delete view">${ic('trash')}</button></span></div>`;
+    return `<div class="vw ${S.activeView === v.id ? 'on' : ''} ${v.alert ? 'alerting' : ''}" data-id="${v.id}" title="${esc(v.name)} · ${fmt(n)} roles${fresh ? `, ${fresh} in the last hour` : ''}${v.alert ? ` · alerts to ${v.channel ? esc(v.channel) : 'my phone'}` : ''}"><span class="dot"></span><span class="nm">${esc(v.name)}</span><span class="ct">${fresh ? `<b class="new">+${fresh}</b> ` : ''}${fmt(n)}</span>
+      <span class="acts"><button class="icon-btn sm ${v.alert ? 'on' : ''}" data-bell title="${v.alert ? `Alerts go to ${v.channel ? esc(v.channel) : 'my phone'}. Click to change` : 'Set up alerts for this view'}">${ic('bell')}</button><button class="icon-btn sm" data-del title="Delete view">${ic('trash')}</button></span></div>`;
   }).join('') : '<div class="empty-views">Set filters, then save them here.</div>';
   $$('.vw').forEach(el => {
     const v = S.meta.filterSets.find(x => x.id === el.dataset.id);
     el.onclick = () => applyView(v);
-    el.querySelector('[data-bell]').onclick = async e => { e.stopPropagation(); v.alert = !v.alert; await api('/api/filter-sets', { method: 'POST', body: JSON.stringify(v) }); renderViews(); if (v.alert && !S.meta.settings.ntfyTopic) toast(`Alerts on for “${v.name}”, but no phone is connected yet`, { action: ['Connect phone', () => { location.hash = '#settings'; }] }); else toast(v.alert ? `Phone alerts on for “${v.name}”` : `Phone alerts off for “${v.name}”`); };
+    el.querySelector('[data-bell]').onclick = e => { e.stopPropagation(); openBell(v); };
     el.querySelector('[data-del]').onclick = async e => { e.stopPropagation(); const copy = { ...v }; await api('/api/filter-sets/' + v.id, { method: 'DELETE' }); S.meta.filterSets = S.meta.filterSets.filter(x => x.id !== v.id); if (S.activeView === v.id) { S.activeView = null; ls.set('lk2.view', null); } renderViews(); renderChips();
       toast(`Deleted “${v.name}”`, { undo: async () => { const r = await api('/api/filter-sets', { method: 'POST', body: JSON.stringify({ ...copy, id: undefined }) }); S.meta.filterSets.push(r); renderViews(); } }); };
   });
@@ -570,9 +578,38 @@ function renderViews() {
 function applyView(v) {
   S.activeView = v.id; ls.set('lk2.view', v.id);
   S.filters = normalizeFilters(v.filters); ls.set('lk2.filters', S.filters); $('#q').value = S.filters.q || '';
-  deck.top = deck.next = null;
   $('#viewTitle').textContent = v.name; location.hash = '#jobs'; refreshJobs(); closeSide();
 }
+// Alerts for one view: off, my phone (the channel in Settings), or a channel of its own for someone else.
+let bellView = null;
+function openBell(v) {
+  bellView = v; const form = $('#bellForm'); const topic = S.meta.settings.ntfyTopic;
+  $('#bellName').textContent = `“${v.name}”`; $('#bellMsg').textContent = '';
+  $('#bellDefault').textContent = topic ? `My phone (${topic})` : 'My phone (not connected yet, set it up in Settings)';
+  form.mode.value = !v.alert ? 'off' : v.channel ? 'custom' : 'default'; form.channel.value = v.channel || '';
+  syncBell(); $('#bellDlg').showModal();
+}
+function syncBell() { const form = $('#bellForm'); const custom = form.mode.value === 'custom'; $('#bellCustom').hidden = !custom; form.channel.required = custom; $('#bellTest').hidden = form.mode.value === 'off'; }
+$('#bellForm').addEventListener('change', syncBell);
+$('#bellCancel').onclick = () => $('#bellDlg').close('cancel');
+$('#bellTest').onclick = async () => {
+  const form = $('#bellForm'); const custom = form.mode.value === 'custom';
+  if (custom && !form.channel.value.trim()) return void ($('#bellMsg').textContent = 'Enter a channel first');
+  $('#bellMsg').textContent = 'Sending…';
+  try { const r = await api('/api/test-push', { method: 'POST', body: JSON.stringify({ channel: custom ? form.channel.value.trim() : '', name: bellView.name }) }); $('#bellMsg').textContent = `Sent to ${r.channel}`; }
+  catch (e) { $('#bellMsg').textContent = e.message; }
+};
+$('#bellDlg').addEventListener('close', async () => {
+  if ($('#bellDlg').returnValue !== 'ok' || !bellView) return;
+  const form = $('#bellForm'); const v = bellView; const mode = form.mode.value;
+  try {
+    const rec = await api('/api/filter-sets', { method: 'POST', body: JSON.stringify({ ...v, alert: mode !== 'off', channel: mode === 'custom' ? form.channel.value.trim() : '' }) });
+    const i = S.meta.filterSets.findIndex(x => x.id === rec.id); if (i >= 0) S.meta.filterSets[i] = rec; // meta may have been reloaded while the dialog was open
+    renderViews();
+    if (mode === 'default' && !S.meta.settings.ntfyTopic) toast(`Alerts on for “${v.name}”, but no phone is connected yet`, { action: ['Connect phone', () => { location.hash = '#settings'; }] });
+    else toast(mode === 'off' ? `Alerts off for “${v.name}”` : `“${v.name}” alerts go to ${rec.channel || 'your phone'}`, { live: mode !== 'off' });
+  } catch (e) { toast(e.message, { ms: 5000 }); }
+});
 function describe(f) { return chipList(f).map(c => `${c.k}: ${c.v}`).join(' · ') || 'All roles'; }
 function openSaveView() {
   const v = S.meta.filterSets.find(x => x.id === S.activeView); const form = $('#viewForm');
@@ -587,7 +624,7 @@ $('#viewCancel').onclick = () => $('#viewDlg').close('cancel');
 $('#viewDlg').addEventListener('close', async () => {
   if ($('#viewDlg').returnValue !== 'ok') return;
   const form = $('#viewForm'); const v = S.meta.filterSets.find(x => x.id === S.activeView);
-  const rec = await api('/api/filter-sets', { method: 'POST', body: JSON.stringify({ id: v && v.name === form.name.value ? v.id : undefined, name: form.name.value, alert: form.alert.checked, filters: S.filters }) });
+  const rec = await api('/api/filter-sets', { method: 'POST', body: JSON.stringify({ id: v && v.name === form.name.value ? v.id : undefined, name: form.name.value, alert: form.alert.checked, channel: v && v.name === form.name.value ? v.channel || '' : '', filters: S.filters }) });
   const i = S.meta.filterSets.findIndex(x => x.id === rec.id); if (i >= 0) S.meta.filterSets[i] = rec; else S.meta.filterSets.push(rec);
   S.activeView = rec.id; ls.set('lk2.view', rec.id); $('#viewTitle').textContent = rec.name; renderViews();
   toast(`Saved “${rec.name}”${rec.alert ? ' · phone alerts on' : ''}`, { live: rec.alert });
@@ -604,12 +641,13 @@ function paletteCommands() {
   const cmds = [
     { g: 'Go to', l: 'Jobs', i: 'inbox', run: go('#jobs') }, { g: 'Go to', l: 'Hiring signals', i: 'zap', run: go('#signals') },
     { g: 'Go to', l: 'Pipeline', i: 'kanban', run: go('#pipeline') }, { g: 'Go to', l: 'Sources & discovery', i: 'radar', run: go('#sources') }, { g: 'Go to', l: 'Settings', i: 'settings', run: go('#settings') },
-    ...(S.meta?.filterSets || []).map(v => ({ g: 'Saved views', l: v.name, i: 'layers', r: v.alert ? 'alerts on' : '', run: () => applyView(v) })),
+    ...(S.meta?.filterSets || []).map(v => ({ g: 'Saved views', l: v.name, i: 'layers', r: v.alert ? (v.channel ? `alerts → ${v.channel}` : 'alerts on') : '', run: () => applyView(v) })),
     { g: 'Filter', l: 'Software & IT only', i: 'sliders', run: () => setFilters({ fields: ['Software & IT'], excludeFields: [] }) },
     { g: 'Filter', l: 'AI / ML roles', i: 'sliders', run: () => setFilters({ specialties: ['AI / ML'] }) },
     { g: 'Filter', l: 'Data science & analytics', i: 'sliders', run: () => setFilters({ specialties: ['Data Science', 'Data Analytics', 'Data Engineering'] }) },
     { g: 'Filter', l: 'Hide core engineering (mechanical, civil, electrical…)', i: 'sliders', run: () => setFilters({ excludeFields: [...new Set([...S.filters.excludeFields, 'Core Engineering'])], fields: S.filters.fields.filter(x => x !== 'Core Engineering') }) },
-    { g: 'Filter', l: 'Internships', i: 'sliders', run: () => setFilters({ types: ['Internship'] }) },
+    { g: 'Filter', l: 'Internships', i: 'sliders', run: () => setFilters({ stages: ['Internship'] }) },
+    { g: 'Filter', l: 'Internships or new grad', i: 'sliders', run: () => setFilters({ stages: ['Internship', 'Apprenticeship', 'Entry'] }) },
     { g: 'Filter', l: 'New grad: 0–1 years', i: 'sliders', run: () => setFilters({ expMin: null, expMax: 1 }) },
     { g: 'Filter', l: 'I need visa sponsorship', i: 'sliders', run: () => setFilters({ visa: ['Sponsors visa', 'Not stated'] }) },
     { g: 'Filter', l: 'Remote only', i: 'sliders', run: () => setFilters({ workModes: ['Remote'] }) },
@@ -621,7 +659,6 @@ function paletteCommands() {
     { g: 'Actions', l: 'Save current filters as view', i: 'plus', run: openSaveView },
     { g: 'Actions', l: 'Clear all filters', i: 'x', run: () => { S.activeView = null; setFilters({ ...EMPTY_FILTERS }); } },
     { g: 'Actions', l: 'Scan every source now', i: 'refresh', run: async () => { await api('/api/scan', { method: 'POST' }); toast('Polling every source now', { live: true }); } },
-    { g: 'Look', l: S.mode === 'slides' ? 'Browse as a list' : 'Slide mode: one role at a time', i: S.mode === 'slides' ? 'list' : 'slides', r: 'V', run: () => { location.hash = '#jobs'; setMode(S.mode === 'slides' ? 'list' : 'slides'); } },
     { g: 'Look', l: 'Toggle light / dark', i: 'moon', run: toggleTheme },
     { g: 'Look', l: document.documentElement.dataset.density === 'compact' ? 'Comfortable spacing' : 'Compact spacing', i: 'layers', run: () => setDensity(document.documentElement.dataset.density === 'compact' ? 'comfortable' : 'compact') },
   ];
@@ -655,146 +692,6 @@ $('#palInput').addEventListener('keydown', e => {
   else if (e.key === 'Enter') { e.preventDefault(); runPal(palSel); } else if (e.key === 'Escape') closePalette();
 });
 
-// ───────────────────────────────────────────── slide mode
-// One role at a time, from the current filtered list. Roles you've already tracked are skipped.
-const deck = { skipped: new Set(), history: [], top: null, next: null, full: new Map(), busy: false, dragging: false, back: false, shown: '' };
-const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
-function fullJob(id) {
-  if (!deck.full.has(id)) { if (deck.full.size > 150) deck.full.clear(); deck.full.set(id, api('/api/job/' + encodeURIComponent(id)).catch(() => null)); }
-  return deck.full.get(id);
-}
-function deckList() {
-  const tr = S.meta?.tracking || {};
-  const l = current.filter(j => !tr[j.id]?.status && !deck.skipped.has(j.id));
-  // Keep the card on screen (and the one peeking behind it) in place when new roles arrive.
-  const pin = [deck.top, deck.next].filter(Boolean).map(id => l.find(j => j.id === id)).filter(Boolean);
-  return pin.length ? [...pin, ...l.filter(j => !pin.includes(j))] : l;
-}
-function slideHtml(j, top) {
-  const loc = locShort(j);
-  return `<header class="s-head">${logo(j.company, j.domain, 'logo xl')}<div class="s-co"><b>${esc(j.company)}</b>${loc ? `<span>${esc(loc)}</span>` : ''}</div><span class="s-time ${isHot(j) ? 'hot' : ''}">${when(j)}</span></header>
-    <h2 class="s-title">${esc(j.title)}</h2>
-    <div class="s-pills">${pillsFor(j, 'slide')}</div>
-    <div class="s-body" ${top ? 'id="slideBody"' : ''}>${top ? '<div class="s-skel"></div><div class="s-skel"></div><div class="s-skel"></div>' : ''}</div>
-    ${top ? `<footer class="s-foot"><a class="btn primary lg" id="sApply" target="_blank" rel="noreferrer" title="Open the listing (↑)">Apply ${ic('external')}</a><button class="btn lg" id="sEmail" title="Draft an outreach email (E)">${ic('mail')}Email</button><span class="spacer"></span><button class="btn ghost lg" id="sMore" title="Everything about this role (Space)">Details</button></footer>
-    <div class="stamp save">Save</div><div class="stamp pass">Pass</div><div class="stamp later">Later</div>` : ''}`;
-}
-function blurb(d = '') {
-  const t = String(d).split('\n').filter(l => l.trim() && !/^(category|terms?|sponsorship|degrees?):/i.test(l.trim())).join(' ').replace(/\s+/g, ' ').trim();
-  return t.length > 340 ? t.slice(0, 340).replace(/\s\S*$/, '') + '…' : t;
-}
-function fillSlide(f) {
-  const body = $('#slideBody'); if (!body) return;
-  const p = profile(); const mine = new Set((p.skills || []).map(s => s.toLowerCase()));
-  const reqs = (f.requirements || []).slice(0, 5); const text = reqs.length ? '' : blurb(f.description);
-  const parts = [];
-  if (reqs.length) parts.push(`<h5>Looking for</h5><ul class="reqs">${reqs.map(r => `<li>${esc(r)}</li>`).join('')}</ul>`);
-  else if (text) parts.push(`<p class="s-snippet">${esc(text)}</p>`);
-  if (f.skills?.length) parts.push(`<h5>Skills${p.skills?.length ? `<span class="match-pct">${skillMatch(f, p.skills)}% match</span>` : ''}</h5><div class="chipset">${f.skills.slice(0, 12).map(s => `<span class="sk ${mine.has(s.name.toLowerCase()) ? 'hit' : ''}">${esc(s.name)}</span>`).join('')}</div>`);
-  body.innerHTML = parts.join('') || '<p class="s-snippet">This listing has no summary. Open the details to read it.</p>';
-  const a = $('#sApply'); if (a) a.href = f.applyUrl || f.url;
-}
-function renderDeck(force) {
-  if (S.mode !== 'slides' || (deck.dragging && !force)) return;
-  const el = $('#deck'); const l = deckList(); const [a, b] = l;
-  const sig = a ? `${a.id}|${b?.id || ''}` : 'empty';
-  if (!force && a && sig === deck.shown) { const c = $('#deckCount'); if (c) c.textContent = fmt(l.length); return; }
-  deck.shown = sig;
-  if (!a) {
-    deck.top = deck.next = null;
-    const saved = deck.history.filter(h => h.kind === 'save').length;
-    el.innerHTML = `<div class="deck-empty"><img src="/logo.svg" width="60" alt=""><h3>All caught up</h3><p>${saved ? `${saved} saved this session.` : 'Nothing left to review here.'}</p>
-      <div class="btns">${deck.skipped.size ? `<button class="btn" id="deckAgain">Revisit ${deck.skipped.size} skipped</button>` : ''}${deck.history.length ? `<button class="btn" id="deckUndo">${ic('undo')}Undo</button>` : ''}<button class="btn ghost" id="deckToList">Back to list</button></div></div>`;
-    $('#deckAgain')?.addEventListener('click', () => { deck.skipped.clear(); renderDeck(true); });
-    $('#deckUndo')?.addEventListener('click', deckUndo);
-    $('#deckToList').onclick = () => setMode('list');
-    return;
-  }
-  deck.top = a.id; deck.next = b?.id || null;
-  el.innerHTML = `
-    <div class="deck-top"><span><b id="deckCount">${fmt(l.length)}</b> to go</span><button class="btn ghost" id="deckUndo" title="Undo (Z)" ${deck.history.length ? '' : 'disabled'}>${ic('undo')}Undo</button></div>
-    <div class="deck-stage" id="deckStage">
-      ${l.length > 2 ? '<div class="slide g2"></div>' : ''}
-      ${b ? `<div class="slide g1">${slideHtml(b, false)}</div>` : ''}
-      <article class="slide top ${deck.back ? 'back-in' : ''}" id="slideTop" data-id="${a.id}">${slideHtml(a, true)}</article>
-    </div>
-    <div class="deck-actions">
-      <button class="act pass" data-act="pass" title="Not for me"><span class="ring">${ic('x')}</span><span>Pass <kbd>←</kbd></span></button>
-      <button class="act later" data-act="later" title="Decide later"><span class="ring">${ic('clock')}</span><span>Later <kbd>↓</kbd></span></button>
-      <button class="act save" data-act="save" title="Save to your pipeline"><span class="ring">${ic('bookmark')}</span><span>Save <kbd>→</kbd></span></button>
-    </div>`;
-  deck.back = false;
-  $('#deckUndo').onclick = deckUndo;
-  $$('.act', el).forEach(btn => btn.onclick = () => deckAct(btn.dataset.act));
-  $('#sMore').onclick = () => select(a.id);
-  $('#sEmail').onclick = () => slideEmail(a.id);
-  wireDrag($('#slideTop'));
-  fullJob(a.id).then(f => { if (f && deck.top === a.id) fillSlide(f); });
-  if (b) fullJob(b.id);
-}
-async function deckAct(kind) {
-  if (deck.busy || S.mode !== 'slides') return;
-  const id = $('#slideTop')?.dataset.id; const l = deckList();
-  if (!id || !l.some(j => j.id === id)) { deck.top = deck.next = null; return renderDeck(true); } // card changed underneath (e.g. tracked from Details)
-  const rest = l.filter(j => j.id !== id);
-  deck.busy = true;
-  $('#slideTop').classList.add('fly-' + kind); $('#deckStage')?.classList.add('advancing');
-  deck.history.push({ id, kind }); if (deck.history.length > 60) deck.history.shift();
-  deck.top = rest[0]?.id || null; deck.next = rest[1]?.id || null;
-  try {
-    const anim = new Promise(r => setTimeout(r, reducedMotion() ? 0 : 280));
-    if (kind === 'save') await track(id, 'saved', undefined, true);
-    else if (kind === 'pass') await setHidden(id, true);
-    else deck.skipped.add(id);
-    await anim;
-  } catch (e) { toast(e.message); }
-  deck.busy = false;
-  renderList();
-}
-async function deckUndo() {
-  if (deck.busy) return; const h = deck.history.pop(); if (!h) return;
-  deck.busy = true;
-  try {
-    if (h.kind === 'save') await track(h.id, '', undefined, true);
-    else if (h.kind === 'pass') await setHidden(h.id, false);
-    else deck.skipped.delete(h.id);
-  } catch (e) { toast(e.message); }
-  deck.busy = false; deck.next = deck.top; deck.top = h.id; deck.back = true;
-  renderList();
-}
-async function slideEmail(id) {
-  toast('Finding the best contact…', { ms: 2200 });
-  const f = await fullJob(id); if (!f) return;
-  let c = null; try { c = await api('/api/contacts/' + encodeURIComponent(id)); } catch { }
-  draft(f, c);
-}
-// Drag (or swipe) the card sideways: right saves, left passes.
-function wireDrag(el) {
-  let sx = 0, sy = 0, dx = 0, down = false, moved = false;
-  const stamps = { save: el.querySelector('.stamp.save'), pass: el.querySelector('.stamp.pass') };
-  el.addEventListener('pointerdown', e => { if (e.button || e.target.closest('a,button')) return; down = true; moved = false; sx = e.clientX; sy = e.clientY; dx = 0; });
-  el.addEventListener('pointermove', e => {
-    if (!down) return; dx = e.clientX - sx; const dy = e.clientY - sy;
-    if (!moved) { if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(dy)) return; moved = true; deck.dragging = true; try { el.setPointerCapture(e.pointerId); } catch { } el.classList.add('dragging'); }
-    el.style.transform = `translateX(${dx}px) rotate(${dx / 30}deg)`;
-    const k = Math.min(1, Math.abs(dx) / 130); stamps.save.style.opacity = dx > 0 ? k : 0; stamps.pass.style.opacity = dx < 0 ? k : 0;
-  });
-  const end = () => {
-    if (!down) return; down = false; if (!moved) return;
-    deck.dragging = false; el.classList.remove('dragging');
-    if (dx > 130) deckAct('save'); else if (dx < -130) deckAct('pass');
-    else { el.style.transform = ''; stamps.save.style.opacity = stamps.pass.style.opacity = 0; }
-  };
-  el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
-}
-function setMode(m) {
-  S.mode = m === 'slides' ? 'slides' : 'list'; ls.set('lk2.mode', S.mode);
-  $('#v-jobs').classList.toggle('mode-slides', S.mode === 'slides');
-  $$('#modeSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === S.mode));
-  if (S.sel) { S.sel = null; $$('.row.sel', list).forEach(r => r.classList.remove('sel')); detailEmpty(); }
-  if (S.mode === 'slides') renderDeck(true);
-}
-$$('#modeSeg button').forEach(b => b.onclick = () => setMode(b.dataset.v));
 
 // ───────────────────────────────────────────── appearance
 function setTheme(t) { if (t === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t; ls.set('lk2.theme', t === 'system' ? null : t); syncAppearance(); }
@@ -827,20 +724,9 @@ document.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if (k === 'f') { e.preventDefault(); return openSheet(); }
   if (e.key === '/') { e.preventDefault(); return $('#q').focus(); }
-  if (k === 'v') return setMode(S.mode === 'slides' ? 'list' : 'slides');
-  if (S.mode === 'slides' && !S.sel) {
-    if (e.key === 'ArrowRight' || k === 's') { e.preventDefault(); deckAct('save'); }
-    else if (e.key === 'ArrowLeft' || k === 'x') { e.preventDefault(); deckAct('pass'); }
-    else if (e.key === 'ArrowDown' || k === 'j') { e.preventDefault(); deckAct('later'); }
-    else if (e.key === 'ArrowUp' || e.key === 'Enter') { e.preventDefault(); const a = $('#sApply'); if (a?.href) window.open(a.href, '_blank', 'noopener'); }
-    else if (k === 'e') $('#sEmail')?.click();
-    else if (e.key === ' ') { e.preventDefault(); $('#sMore')?.click(); }
-    else if (k === 'z' || e.key === 'Backspace') { e.preventDefault(); deckUndo(); }
-    return;
-  }
   const idx = current.findIndex(j => j.id === S.sel);
-  if (S.mode === 'list' && (k === 'j' || e.key === 'ArrowDown')) { e.preventDefault(); const n = current[Math.min(current.length - 1, idx + 1)]; if (n) { if (idx + 1 >= S.limit) { S.limit += 300; renderList(); } select(n.id); } }
-  else if (S.mode === 'list' && (k === 'k' || e.key === 'ArrowUp')) { e.preventDefault(); const n = current[Math.max(0, idx - 1)]; if (n) select(n.id); }
+  if ((k === 'j' || e.key === 'ArrowDown')) { e.preventDefault(); const n = current[Math.min(current.length - 1, idx + 1)]; if (n) { if (idx + 1 >= S.limit) { S.limit += 300; renderList(); } select(n.id); } }
+  else if ((k === 'k' || e.key === 'ArrowUp')) { e.preventDefault(); const n = current[Math.max(0, idx - 1)]; if (n) select(n.id); }
   else if (e.key === 'Enter' && S.detailJob && S.sel) window.open(S.detailJob.applyUrl || S.detailJob.url, '_blank', 'noopener');
   else if (k === 's' && S.sel) track(S.sel, S.meta.tracking[S.sel]?.status === 'saved' ? '' : 'saved');
   else if (k === 'x' && S.sel) hideJob(S.sel);
@@ -922,8 +808,9 @@ $('#watchForm').onsubmit = async e => {
 function renderSettings() {
   const s = S.meta.settings; const f = $('#pushForm');
   f.ntfyTopic.value = s.ntfyTopic || ''; f.ntfyServer.value = s.ntfyServer || 'https://ntfy.sh'; f.ntfyToken.value = s.hasToken ? '••••' : ''; f.quietHours.value = s.quietHours || ''; f.desktopNotify.checked = !!s.desktopNotify;
+  if (document.activeElement !== $('#liForm').searches) $('#liForm').searches.value = (s.linkedinSearches || []).map(x => [x.keywords, x.location || 'Worldwide', x.remote ? 'remote' : ''].filter(Boolean).join(' | ')).join('\n');
   if (!$('#topicIdea').textContent) $('#topicIdea').textContent = 'lookout-' + crypto.getRandomValues(new Uint32Array(2)).reduce((a, n) => a + n.toString(36), '');
-  const p = s.profile || {}; const pf = $('#profileForm'); pf.name.value = p.name || ''; pf.skills.value = (p.skills || []).join(', '); pf.link.value = p.link || ''; pf.pitch.value = p.pitch || '';
+  renderProfile();
   $('#alertNote').textContent = s.ntfyTopic ? '' : 'Phone not connected yet'; syncAppearance();
   const bl = S.meta.blockedCompanies || [];
   $('#blockedList').innerHTML = bl.length ? bl.map(c => `<span class="chip"><span class="v">${esc(c)}</span><button data-unblock="${esc(c)}" title="Unblock">${ic('x')}</button></span>`).join('') : '<span class="muted small">None</span>';
@@ -942,11 +829,149 @@ $('#pushForm').onsubmit = async e => {
   $('#pushMsg').textContent = 'Saved'; await loadMeta();
 };
 $('#testPush').onclick = async () => { $('#pushMsg').textContent = 'Sending…'; try { await api('/api/test-push', { method: 'POST' }); $('#pushMsg').textContent = 'Sent'; } catch (e) { $('#pushMsg').textContent = e.message; } };
-$('#profileForm').onsubmit = async e => {
+$('#liForm').onsubmit = async e => {
   e.preventDefault(); const f = e.target;
-  await api('/api/settings', { method: 'POST', body: JSON.stringify({ profile: { name: f.name.value, link: f.link.value, pitch: f.pitch.value, skills: f.skills.value.split(',').map(s => s.trim()).filter(Boolean) } }) });
-  $('#profileMsg').textContent = 'Saved'; await loadMeta(); renderList();
+  const linkedinSearches = f.searches.value.split('\n').map(l => l.split('|').map(x => x.trim())).filter(p => p[0]).map(p => ({ keywords: p[0], location: p[1] || 'Worldwide', remote: /^remote$/i.test(p[2] || '') }));
+  await api('/api/settings', { method: 'POST', body: JSON.stringify({ linkedinSearches }) });
+  $('#liMsg').textContent = linkedinSearches.length ? `Saved. Checking ${linkedinSearches.length} search${linkedinSearches.length > 1 ? 'es' : ''} now` : 'Saved. LinkedIn is off'; await loadMeta();
 };
+// ───────────────────────────────────────────── profile, résumé, profiles
+const P = { dirty: false, skills: [], manual: [], resume: null, for: null }; // the profile being edited
+const eduLine = e => [e.degree, e.school !== e.degree ? e.school : '', [e.start, e.end].filter(Boolean).join('–'), e.grade].filter(Boolean).join(', ');
+function renderProfile() {
+  const list = S.meta.profiles || []; const active = list.find(x => x.active) || list[0] || { id: 'p1', label: 'Me' };
+  $('#profSel').innerHTML = list.map(x => `<option value="${esc(x.id)}" ${x.active ? 'selected' : ''}>${esc(x.label)}</option>`).join('');
+  $('#profDel').disabled = list.length < 2;
+  const p = profile(); const f = $('#profileForm');
+  if (!P.dirty || P.for !== active.id) {
+    P.for = active.id; P.dirty = false; P.skills = [...(p.skills || [])]; P.manual = [...(p.manualSkills || [])]; P.resume = p.resume || null;
+    for (const k of ['name', 'headline', 'link', 'email', 'pitch', 'degree']) f[k].value = p[k] || '';
+    f.yearsExp.value = p.yearsExp ?? ''; f.gradYear.value = p.gradYear ?? '';
+    f.education.value = (p.education || []).join('\n'); f.experience.value = (p.experience || []).join('\n');
+    f.projects.value = (p.projects || []).join('\n'); f.strictFit.checked = p.strictFit !== false;
+  }
+  $('#cvNote').textContent = P.resume ? `Last read: ${P.resume.file || 'pasted text'}, ${agoLong(Date.parse(P.resume.at))}` : '';
+  renderSkillChips();
+}
+function renderSkillChips() {
+  const sorted = [...P.skills].sort((a, b) => skillInfo(b).tech - skillInfo(a).tech);
+  const tech = sorted.filter(s => skillInfo(s).tech).length;
+  $('#skillChips').innerHTML = sorted.map(s => `<span class="chip ${skillInfo(s).tech ? 'tech' : 'gen'}"><span class="v">${esc(s)}</span><button type="button" data-rm="${esc(s)}" title="Remove">${ic('x')}</button></span>`).join('') || '<span class="muted small">None yet. Import a résumé or type below.</span>';
+  $('#skillCount').textContent = P.skills.length ? `${tech} technical${P.skills.length - tech ? `, ${P.skills.length - tech} general` : ''}` : '';
+  $$('[data-rm]', $('#skillChips')).forEach(b => b.onclick = () => { P.skills = P.skills.filter(s => s !== b.dataset.rm); P.manual = P.manual.filter(s => s !== b.dataset.rm); P.dirty = true; renderSkillChips(); });
+}
+function addSkills(raw, byHand = false) {
+  const have = new Set(P.skills.map(s => skillInfo(s).canonical.toLowerCase())); let n = 0;
+  for (const t of String(raw).split(/[,;\n]/).map(s => s.trim()).filter(Boolean)) { const c = skillInfo(t).canonical; if (c.length > 40 || have.has(c.toLowerCase())) continue; have.add(c.toLowerCase()); P.skills.push(c); if (byHand) P.manual.push(c); n++; }
+  if (n) { P.dirty = true; renderSkillChips(); } return n;
+}
+$('#skillAdd').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addSkills(e.target.value, true); e.target.value = ''; } });
+$('#skillAdd').addEventListener('blur', e => { if (e.target.value.trim()) { addSkills(e.target.value, true); e.target.value = ''; } });
+$('#profileForm').addEventListener('input', () => { P.dirty = true; });
+async function saveProfile(msg = 'Saved') {
+  const f = $('#profileForm'); const lines = v => v.split('\n').map(s => s.trim()).filter(Boolean);
+  if (f.skillAdd.value.trim()) { addSkills(f.skillAdd.value, true); f.skillAdd.value = ''; }
+  const body = { name: f.name.value, headline: f.headline.value, link: f.link.value, email: f.email.value, pitch: f.pitch.value, degree: f.degree.value, yearsExp: f.yearsExp.value, gradYear: f.gradYear.value, education: lines(f.education.value), experience: lines(f.experience.value), projects: lines(f.projects.value), strictFit: f.strictFit.checked, skills: P.skills, manualSkills: P.manual, resume: P.resume };
+  await api('/api/settings', { method: 'POST', body: JSON.stringify({ profile: body }) });
+  P.dirty = false; $('#profileMsg').textContent = msg; await loadMeta(); renderProfile(); evCache = null; renderList();
+}
+$('#profileForm').onsubmit = e => { e.preventDefault(); saveProfile().catch(err => { $('#profileMsg').textContent = err.message; }); };
+
+// Résumé: read on this computer by the scanner, then merged into the profile being edited.
+async function importResume(src) {
+  const say = t => { $('#cvMsg').textContent = t; $('#welcomeMsg').textContent = t; };
+  say('Reading…');
+  try {
+    const r = typeof src === 'string'
+      ? await api('/api/resume', { method: 'POST', body: JSON.stringify({ text: src }) })
+      : await fetch(`/api/resume?name=${encodeURIComponent(src.name)}`, { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: src }).then(async x => { const d = await x.json().catch(() => ({})); if (!x.ok) throw new Error(d.error || 'That file could not be read.'); return d; });
+    const d = r.parsed; const f = $('#profileForm');
+    if (!S.meta.profiles) await loadMeta();
+    renderProfile();
+    const fill = (k, v) => { if (v && !f[k].value.trim()) f[k].value = v; };
+    fill('name', d.name); fill('headline', d.headline); fill('email', d.email); fill('pitch', d.summary);
+    fill('link', d.links.find(u => /github\.com/i.test(u)) || d.links[0]);
+    if (d.education.length) f.education.value = d.education.map(eduLine).join('\n');
+    if (d.experience.length) f.experience.value = d.experience.map(x => `${x.title} (${x.from} – ${x.to}${x.internship ? `, ${x.months} month${x.months > 1 ? 's' : ''}` : ''})`).join('\n');
+    if (d.projects?.length) f.projects.value = d.projects.map(x => `${x.name}${x.year ? ` (${x.year})` : ''}${x.stack.length ? ` · ${x.stack.join(', ')}` : ''}`).join('\n');
+    f.yearsExp.value = d.yearsExp; // internships are listed above but do not count as years
+    if (d.degree) f.degree.value = d.degree; if (d.gradYear) f.gradYear.value = d.gradYear;
+    // A new résumé replaces what the last one gave; only skills you typed in yourself carry over.
+    P.skills = [...P.manual];
+    const added = addSkills(d.skills.map(s => s.name).join('\n'));
+    P.resume = { file: r.file || '', at: new Date().toISOString(), chars: d.chars }; P.dirty = true;
+    const tech = d.skills.filter(s => s.tech).length;
+    const found = [`${tech} technical skill${tech === 1 ? '' : 's'}`, d.education.length && `${d.education.length} education entr${d.education.length > 1 ? 'ies' : 'y'}`, d.experience.length && `${d.experience.length} role${d.experience.length > 1 ? 's' : ''} (${d.experience.filter(x => x.internship).length} internship${d.experience.filter(x => x.internship).length === 1 ? '' : 's'}, ${d.yearsExp} years of full-time work)`, d.projects?.length && `${d.projects.length} projects`].filter(Boolean).join(', ');
+    await saveProfile('Saved');
+    say(`Found ${found}. Saved to this profile; check it over below.`);
+    return true;
+  } catch (e) { say(e.message); return false; }
+}
+$('#cvPick').onclick = () => $('#cvFile').click();
+$('#cvFile').onchange = async e => { const file = e.target.files[0]; e.target.value = ''; if (file) await importResume(file); };
+{ const drop = $('#cvDrop'); for (const ev of ['dragenter', 'dragover']) drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); });
+  for (const ev of ['dragleave', 'drop']) drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); });
+  drop.addEventListener('drop', e => { const file = e.dataTransfer?.files?.[0]; if (file) importResume(file); }); }
+let pasteThen = null;
+const openPaste = then => { pasteThen = then || null; $('#cvText').value = ''; $('#cvDlg').showModal(); };
+$('#cvPaste').onclick = () => openPaste();
+$('#cvCancel').onclick = () => $('#cvDlg').close('cancel');
+$('#cvDlg').addEventListener('close', async () => { if ($('#cvDlg').returnValue !== 'ok') return; const ok = await importResume($('#cvText').value); pasteThen?.(ok); });
+$('#rankNow').onclick = () => { S.sort = 'best'; ls.set('lk2.sort', 'best'); renderSort(); location.hash = '#jobs'; renderList(); };
+
+// Profiles: each has its own résumé, skills, saved views, pipeline and blocked companies.
+function renderWho() {
+  const list = S.meta?.profiles || []; const a = list.find(x => x.active); if (!a) return;
+  $('#whoName').textContent = a.label; $('#whoAv').textContent = (a.label.trim()[0] || '?').toUpperCase();
+}
+async function profileAction(body) {
+  await api('/api/profiles', { method: 'POST', body: JSON.stringify(body) });
+  if (body.action === 'rename') { await loadMeta(); renderProfile(); return; }
+  // a different person: their views and filters, not the last ones used in this window
+  try { localStorage.removeItem('lk2.filters'); localStorage.removeItem('lk2.view'); } catch { }
+  location.hash = body.action === 'create' ? '#settings' : location.hash; location.reload();
+}
+let nameThen = null;
+function askName(title, value, hint, then) { $('#nameTitle').textContent = title; $('#nameHint').textContent = hint; $('#nameForm').label.value = value; nameThen = then; $('#nameDlg').showModal(); $('#nameForm').label.select(); }
+$('#nameCancel').onclick = () => $('#nameDlg').close('cancel');
+$('#nameDlg').addEventListener('close', () => { const v = $('#nameForm').label.value.trim(); if ($('#nameDlg').returnValue === 'ok' && v) nameThen?.(v); });
+const newProfile = () => askName('New profile', '', 'A separate résumé, skills, saved views and pipeline. Use one per person, or one per kind of role you are going for.', label => profileAction({ action: 'create', label }).catch(e => toast(e.message)));
+$('#profNew').onclick = newProfile;
+$('#profRename').onclick = () => { const a = S.meta.profiles.find(x => x.active); askName('Rename profile', a.label, '', label => profileAction({ action: 'rename', id: a.id, label }).catch(e => toast(e.message))); };
+$('#profDel').onclick = () => { const a = S.meta.profiles.find(x => x.active); toast(`Delete the profile “${a.label}” with its views and pipeline?`, { action: ['Delete', () => profileAction({ action: 'delete', id: a.id }).catch(e => toast(e.message))], ms: 9000 }); };
+$('#profSel').onchange = e => profileAction({ action: 'switch', id: e.target.value }).catch(err => toast(err.message));
+$('#who').onclick = () => {
+  const list = S.meta.profiles || [];
+  $('#whoList').innerHTML = list.map(x => `<button type="button" class="who-row ${x.active ? 'on' : ''}" data-id="${esc(x.id)}"><span class="who-av">${esc((x.label.trim()[0] || '?').toUpperCase())}</span><span>${esc(x.label)}</span>${x.active ? '<small>Open now</small>' : ''}</button>`).join('');
+  $$('.who-row', $('#whoList')).forEach(b => b.onclick = () => { $('#whoDlg').close(); if (!b.classList.contains('on')) profileAction({ action: 'switch', id: b.dataset.id }).catch(e => toast(e.message)); });
+  $('#whoDlg').showModal();
+};
+$('#whoNew').onclick = () => { $('#whoDlg').close(); newProfile(); };
+$('#whoEdit').onclick = () => { $('#whoDlg').close(); location.hash = '#settings'; };
+$('#whoClose').onclick = () => $('#whoDlg').close();
+
+// First look at an empty profile: offer the résumé once.
+function maybeWelcome() {
+  const a = (S.meta.profiles || []).find(x => x.active); const p = profile();
+  if (!a || p.skills?.length || p.resume || ls.get(`lk2.welcomed.${a.id}`, false)) return;
+  $('#welcomeTitle').textContent = (S.meta.profiles || []).length > 1 ? `Set up ${a.label}` : 'Start with your résumé'; $('#welcomeMsg').textContent = ''; $('#welcomeDlg').showModal();
+}
+{ const done = () => { const a = (S.meta.profiles || []).find(x => x.active); if (a) ls.set(`lk2.welcomed.${a.id}`, true); };
+  const finish = ok => { if (!ok) return; done(); $('#welcomeDlg').close(); location.hash = '#settings'; };
+  $('#welcomeDlg').addEventListener('close', done);
+  $('#welcomeSkip').onclick = () => $('#welcomeDlg').close();
+  $('#welcomePick').onclick = () => $('#welcomeFile').click();
+  $('#welcomeFile').onchange = async e => { const file = e.target.files[0]; e.target.value = ''; if (file) finish(await importResume(file)); };
+  $('#welcomePaste').onclick = () => openPaste(finish); }
+
+// "My skills" / "Clear" in the Skills filter
+$('#sheetBody').addEventListener('click', e => {
+  if (e.target.closest('[data-noskills]')) return setFilters({ skills: [] });
+  if (!e.target.closest('[data-myskills]')) return;
+  const mine = (profile().skills || []).filter(s => skillInfo(s).tech);
+  if (!mine.length) { toast('Your profile has no skills yet', { action: ['Add them', () => { closeSheet(); location.hash = '#settings'; }] }); return; }
+  setFilters({ skills: mine, skillsAll: false });
+});
 
 // ───────────────────────────────────────────── theme, routing, sidebar
 function toggleTheme() { const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'); const next = cur === 'light' ? 'dark' : 'light'; setTheme(next); }
@@ -974,18 +999,38 @@ function renderEngine() {
   $('#engine').title = `${Math.max(0, src.length - 2)} feeds and ${fmt(boards)} company boards. Last check ${last ? agoLong(last) : 'pending'}.`;
 }
 setInterval(renderEngine, 5000);
+// The live feed can silently die (sleep, network change, a long time in the background). Detect it,
+// reconnect, and pull the full list again so nothing that arrived meanwhile is missed.
+let es = null, lastBeat = 0, lastSync = Date.now(), syncing = false, sawPing = false;
+async function resync() {
+  if (syncing) return; syncing = true;
+  try {
+    const [{ jobs }] = await Promise.all([api('/api/jobs'), loadMeta()]);
+    const had = new Set(S.jobs.map(j => j.id)); S.jobs = jobs; lastSync = Date.now(); evCache = null;
+    const c = ctx(); const fresh = jobs.filter(j => !had.has(j.id) && matches(j, S.filters, c)).map(j => j.id);
+    const pend = [...new Set([...S.pending, ...fresh])];
+    if (S.view === 'jobs' && list.scrollTop < 20 && !$('#sheet').classList.contains('open')) renderList(new Set(pend.slice(0, 40)));
+    else { S.pending = pend; updatePill(); }
+    renderQuick(); renderViews(); renderEngine();
+  } catch { /* scanner unreachable; the watchdog tries again */ } finally { syncing = false; }
+}
+setInterval(() => {
+  if (sawPing && Date.now() - lastBeat > 80e3) { connect(); resync(); }           // feed went quiet: reconnect
+  else if (!document.hidden && Date.now() - lastSync > 5 * 60e3) resync();       // safety net every 5 minutes
+}, 20e3);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - lastSync > 60e3) resync(); });
 function connect() {
-  const es = new EventSource('/api/events');
-  es.onopen = () => { S.connected = true; renderEngine(); };
-  es.onerror = () => { S.connected = false; renderEngine(); };
+  es?.close(); es = new EventSource('/api/events'); lastBeat = Date.now(); let wasDown = false;
+  es.onopen = () => { S.connected = true; lastBeat = Date.now(); renderEngine(); if (wasDown) resync(); wasDown = false; };
+  es.onerror = () => { S.connected = false; wasDown = true; renderEngine(); };
+  es.addEventListener('ping', () => { lastBeat = Date.now(); sawPing = true; });
   es.addEventListener('jobs', e => {
     const { added } = JSON.parse(e.data); const ids = new Set(S.jobs.map(j => j.id));
     const fresh = added.filter(j => !ids.has(j.id)); if (!fresh.length) return;
     S.jobs = [...fresh, ...S.jobs];
     const c = ctx(); const visible = fresh.filter(j => matches(j, S.filters, c)).map(j => j.id);
     S.pending.push(...visible);
-    if (S.mode === 'slides') renderList(); // the deck keeps its card in place and just updates the count
-    else if (S.view === 'jobs' && list.scrollTop < 20 && S.pending.length && S.pending.length < 25 && !$('#sheet').classList.contains('open')) { const set = new Set(S.pending); renderList(set); }
+    if (S.view === 'jobs' && list.scrollTop < 20 && S.pending.length && S.pending.length < 25 && !$('#sheet').classList.contains('open')) { const set = new Set(S.pending); renderList(set); }
     else updatePill();
     renderQuick(); renderViews();
   });
@@ -998,7 +1043,7 @@ function connect() {
   es.addEventListener('status', e => { const st = JSON.parse(e.data); const s = S.meta?.sources.find(x => x.id === st.id); if (s) Object.assign(s, st); renderEngine(); });
   es.addEventListener('funding', () => { if (S.view === 'signals') renderSignals(); });
 }
-async function loadMeta() { S.meta = await api('/api/meta'); renderNav(); }
+async function loadMeta() { S.meta = await api('/api/meta'); renderNav(); renderWho(); }
 
 async function init() {
   hydrateIcons();
@@ -1007,7 +1052,7 @@ async function init() {
   await loadMeta();
   const v = S.meta.filterSets.find(x => x.id === S.activeView); if (v) $('#viewTitle').textContent = v.name; else S.activeView = null;
   const { jobs } = await api('/api/jobs'); S.jobs = jobs;
-  refreshJobs(); setMode(S.mode); route(); renderEngine(); connect();
+  refreshJobs(); route(); renderEngine(); connect(); maybeWelcome();
   api('/api/signals').then(r => $('#nSignals').textContent = fmt(r.companies.length)).catch(() => { });
   api('/api/discovery').then(d => $('#nSources').textContent = fmt(d.boards)).catch(() => { });
   setInterval(async () => { await loadMeta(); renderViews(); if (S.view === 'sources') renderSources(); }, 30000);

@@ -1,6 +1,7 @@
 // Turns raw postings into structured, filterable records: skills, requirements, role type,
 // seniority, specialty/field, country, remote flag, salary, visa, years, pay.
 import { deepAttributes, payOf } from './taxonomy.mjs';
+import { SKILLS, SKILL_ALIASES as ALIASES } from '../public/skills.mjs';
 
 /** Keep a pay string only if it parses as pay (or is clearly an Indian CTC/stipend we can't normalize). */
 export function cleanSalary(s, type) {
@@ -10,19 +11,6 @@ export function cleanSalary(s, type) {
   return /\d/.test(t) && /(lpa|lakh|crore|₹|ctc)/i.test(t) ? t : '';
 }
 
-const SKILLS = {
-  Languages: ['Python', 'JavaScript', 'TypeScript', 'Java', 'Go', 'Golang', 'Rust', 'C', 'C++', 'C#', 'Kotlin', 'Swift', 'Ruby', 'PHP', 'Scala', 'Elixir', 'Dart', 'R', 'MATLAB', 'Solidity', 'Bash', 'SQL', 'Haskell', 'Julia', 'Lua', 'Verilog', 'VHDL'],
-  Frontend: ['React', 'Next.js', 'Vue', 'Nuxt', 'Angular', 'Svelte', 'Redux', 'Tailwind', 'HTML', 'CSS', 'Webpack', 'Vite', 'React Native', 'Flutter', 'SwiftUI', 'Jetpack Compose', 'Three.js', 'WebGL'],
-  Backend: ['Node.js', 'Express', 'NestJS', 'Django', 'Flask', 'FastAPI', 'Rails', 'Spring Boot', '.NET', 'Laravel', 'GraphQL', 'REST', 'gRPC', 'Microservices', 'WebSockets', 'Kafka', 'RabbitMQ', 'Redis', 'Celery'],
-  Data: ['PostgreSQL', 'MySQL', 'MongoDB', 'DynamoDB', 'Cassandra', 'Elasticsearch', 'Snowflake', 'BigQuery', 'Redshift', 'Databricks', 'Spark', 'Airflow', 'dbt', 'Pandas', 'NumPy', 'ETL', 'Data Pipelines', 'Tableau', 'Power BI', 'Looker', 'Excel', 'ClickHouse', 'Supabase', 'Firebase'],
-  'AI / ML': ['Machine Learning', 'Deep Learning', 'PyTorch', 'TensorFlow', 'JAX', 'scikit-learn', 'LLMs', 'LLM', 'NLP', 'Computer Vision', 'RAG', 'LangChain', 'LlamaIndex', 'Hugging Face', 'OpenAI', 'Prompt Engineering', 'Fine-tuning', 'Reinforcement Learning', 'MLOps', 'CUDA', 'Vector Databases', 'Generative AI', 'AI Agents', 'Recommendation Systems', 'Statistics'],
-  Infra: ['AWS', 'GCP', 'Azure', 'Kubernetes', 'Docker', 'Terraform', 'CI/CD', 'GitHub Actions', 'Linux', 'Serverless', 'Lambda', 'Cloudflare', 'Vercel', 'Nginx', 'Observability', 'Prometheus', 'Grafana', 'Distributed Systems', 'Networking', 'Security', 'Penetration Testing', 'SRE', 'DevOps'],
-  Product: ['Product Management', 'Figma', 'UX Research', 'UI Design', 'Prototyping', 'Product Design', 'A/B Testing', 'Analytics', 'Mixpanel', 'Amplitude', 'Roadmapping', 'User Research', 'Design Systems'],
-  Business: ['Sales', 'Business Development', 'Marketing', 'Growth', 'SEO', 'Content Writing', 'Copywriting', 'Social Media', 'Customer Success', 'Account Management', 'Operations', 'Finance', 'Financial Modeling', 'Recruiting', 'Community', 'Partnerships', 'CRM', 'HubSpot', 'Salesforce', 'Go-to-Market'],
-  Hardware: ['Embedded', 'Firmware', 'PCB Design', 'Robotics', 'ROS', 'FPGA', 'CAD', 'SolidWorks', 'Mechanical Engineering', 'Electrical Engineering', 'Arduino', 'Raspberry Pi'],
-  Other: ['Git', 'Agile', 'Testing', 'Jest', 'Playwright', 'Cypress', 'Selenium', 'Blockchain', 'Web3', 'iOS', 'Android', 'Unity', 'Unreal', 'Game Development', 'Data Structures', 'Algorithms', 'System Design', 'APIs'],
-};
-const ALIASES = { Golang: 'Go', LLM: 'LLMs', Lambda: 'Serverless' };
 const SHORT_AMBIGUOUS = new Set(['Recruiting', 'Analytics', 'Research', 'Design Systems', 'C', 'R', 'Go', 'Excel', 'Testing', 'Communication', 'Security', 'Growth', 'Operations', 'Finance', 'Sales', 'Marketing', 'Community', 'APIs', 'REST', 'Statistics', 'Networking']);
 const SKILL_INDEX = Object.entries(SKILLS).flatMap(([group, list]) => list.map(name => ({ name: ALIASES[name] || name, group, re: skillRegex(name) })));
 function skillRegex(name) {
@@ -63,26 +51,76 @@ export function requirementLines(text = '') {
   return out;
 }
 
-export function inferType(text) {
-  const s = text.toLowerCase();
-  if (/\b(intern|internship|co-?op|summer analyst|industrial training)\b/.test(s)) return 'Internship';
-  if (/\b(apprentice|apprenticeship|trainee)\b/.test(s)) return 'Apprenticeship';
-  if (/\b(part[- ]time)\b/.test(s)) return 'Part-time';
-  if (/\b(contract|contractor|freelance|temporary|fixed[- ]term)\b/.test(s)) return 'Contract';
-  if (/\b(full[- ]time)\b/.test(s)) return 'Full-time';
+// Student roles in the languages our sources actually post in (German, French, Dutch, Portuguese, Spanish).
+const INTERN_TITLE = /\b(?:interns?|internships?|intership|co-?op|working student|summer (?:analyst|associate|student)|industrial training|student (?:researcher|developer|engineer|assistant|worker)|stagiaire|estagi[aá]ri[oa]|est[aá]gio|pasant[ií]a|becari[oa])\b|\bwerkstudent|\bpraktik(?:um|ant)|\b(?:meewerk|afstudeer)stage\b|^\s*stage\b(?! manager)|\bstage (?:de |en |-|–|:|\()/i;
+const APPRENTICE_TITLE = /\b(?:apprentice(?:ship)?|trainee|jovem aprendiz|alternance|alternant(?:e)?|ausbildung|auszubildende[rn]?|azubi)\b/i;
+// Titles that are plainly not student roles, whatever a source's "type" field claims.
+const SENIOR_PLUS_TITLE = /\b(?:principal|distinguished|(?<!technical |of |chief of )staff(?! accountant| nurse| auditor| attorney| writer| assistant| member)|director|head(?: of\b|,| -)|s?vp|evp|vice president|chief(?! of staff (?:associate|intern))|president|lead(?! gen)|architect|senior manager|engineering manager|manager,? (?:of )?engineering)\b|^\s*(?:co-?founder\b|c[etfopm]o\b(?!'s| office))/i;
+const SENIOR_TITLE = /\b(?:senior|sr\.?|expert|iii|iv|(?:engineer|developer|analyst|scientist|designer|specialist) (?:3|4|5))\b/i;
+const MID_TITLE = /\bmid[- ]level\b|\b(?:engineer|developer|analyst|scientist|designer|specialist) (?:ii|2)\b/i;
+const ENTRY_TITLE = /\b(?:new grad(?:uate)?s?|graduate|entry[- ]level|junior|jr\.?|fresher|early[- ]career|university grad(?:uate)?|campus hire|associate (?:software |product |data |ml |ai )?(?:engineer|developer|product manager|analyst|consultant|designer|scientist)|(?:engineer|developer|analyst|scientist|designer) (?:i|1))\b/i;
+
+export function inferType(title = '', hint = '', text = '') {
+  const t = String(title), h = String(hint || '').toLowerCase(), head = String(text).slice(0, 800).toLowerCase();
+  if (INTERN_TITLE.test(t)) return 'Internship';
+  const senior = SENIOR_PLUS_TITLE.test(t) || SENIOR_TITLE.test(t) || /\bfounding\b/i.test(t);
+  if (!senior && /\b(intern|internship|co-?op|working student|werkstudent|praktikum)\b/.test(h)) return 'Internship';
+  if (APPRENTICE_TITLE.test(t)) return 'Apprenticeship';
+  if (!senior) {
+    if (/\b(apprentice|apprenticeship|trainee|ausbildung)\b/.test(h)) return 'Apprenticeship';
+    // The posting itself has to say so; a passing mention ("you'll mentor interns") is not enough.
+    if (/\b(?:this is an? (?:(?:paid|unpaid|summer|full-time|part-time|remote|\d+[- ](?:month|week))[ ,]+)*internship|internship (?:position|role|opportunity|duration|period)\b)/.test(head)) return 'Internship';
+  }
+  const th = t.toLowerCase() + ' ' + h;
+  if (/\bpart[- ]?time\b/.test(th)) return 'Part-time';
+  if (/\b(contract|contractor|freelance|temporary|fixed[- ]term)\b/.test(th)) return 'Contract';
+  if (/\b(?:part[- ]time|contract|freelance) (?:position|role|job|opportunity)\b|\b\d+[- ]month contract\b/.test(head)) return /part[- ]time/.test(head) ? 'Part-time' : 'Contract';
   return 'Full-time';
 }
 
-export function inferLevel(title = '', text = '') {
-  const t = title.toLowerCase(); const s = `${title} ${text}`.toLowerCase();
-  if (/\b(intern|internship|co-?op)\b/.test(t)) return 'Intern';
-  if (/\b(new grad|graduate|entry[- ]level|junior|jr\.?|fresher|associate engineer|early career|university grad|campus)\b/.test(t)) return 'Entry';
-  if (/\b(principal|(?<!technical |of )staff|director|head of|vp|vice president|chief|lead|architect|senior manager|engineering manager|manager, engineering)\b/.test(t)) return 'Senior+';
-  if (/\b(senior|sr\.?)\b/.test(t)) return 'Senior';
-  const m = s.match(/\b(\d{1,2})\s*\+?\s*(?:-|–|to)?\s*(\d{1,2})?\s*\+?\s*years?/);
-  if (m) { const y = Number(m[1]); if (y <= 1) return 'Entry'; if (y <= 3) return 'Mid'; if (y <= 6) return 'Senior'; return 'Senior+'; }
-  if (/\b(new grad|entry[- ]level|no experience|fresh graduates?|recent graduates?)\b/.test(s)) return 'Entry';
+/** Seniority words a source gives us directly ("Director", "Entry-level", "mid_level") mapped to our levels. */
+export function normLevel(hint = '') {
+  const parts = (Array.isArray(hint) ? hint : [hint]).map(x => String(x || '').toLowerCase().replace(/_/g, ' '));
+  const rank = { Intern: 0, Entry: 1, Mid: 2, Senior: 3, 'Senior+': 4 }; let best = null;
+  for (const s of parts) {
+    let l = null;
+    if (!s || /\bany\b|not applicable/.test(s)) l = null;
+    else if (/\bintern|student/.test(s)) l = 'Intern';
+    else if (/mid[- ]senior/.test(s)) l = null; // too broad to mean anything
+    else if (/director|executive|\bvp\b|vice president|chief|c[- ]level|head|principal|\bstaff\b|\blead\b|manager/.test(s)) l = 'Senior+';
+    else if (/senior|\bsr\b|experienced/.test(s)) l = 'Senior';
+    else if (/entry|junior|graduate|associate|trainee|no experience/.test(s)) l = 'Entry';
+    else if (/\bmid|intermediate/.test(s)) l = 'Mid';
+    if (l && (best === null || rank[l] < rank[best])) best = l; // open to several levels: the lowest is who can apply
+  }
+  return best;
+}
+
+/**
+ * Seniority, in order of trust: what the title says, what the source says, the years it asks for,
+ * then wording in the posting. "Mid" is the fallback when nothing says otherwise.
+ */
+export function inferLevel(title = '', text = '', { hint = '', years = undefined } = {}) {
+  const t = String(title);
+  if (INTERN_TITLE.test(t)) return 'Intern';
+  if (SENIOR_PLUS_TITLE.test(t)) return 'Senior+';
+  if (SENIOR_TITLE.test(t)) return 'Senior';
+  if (ENTRY_TITLE.test(t)) return 'Entry';
+  if (MID_TITLE.test(t)) return 'Mid';
+  const fromSource = normLevel(hint);
+  if (fromSource) return fromSource;
+  let y = years;
+  if (y === undefined) { const m = `${title} ${text}`.toLowerCase().match(/\b(\d{1,2})\s*\+?\s*(?:-|–|to)?\s*(\d{1,2})?\s*\+?\s*years?/); y = m ? Number(m[1]) : null; }
+  if (/\bfounding\b/i.test(t) && (y === null || y >= 2)) return y !== null && y >= 7 ? 'Senior+' : 'Senior';
+  if (y !== null && y !== undefined) { if (y <= 1) return 'Entry'; if (y <= 3) return 'Mid'; if (y <= 6) return 'Senior'; return 'Senior+'; }
+  if (/\b(new grads?|entry[- ]level|no experience|fresh graduates?|recent graduates?)\b/i.test(text)) return 'Entry';
   return 'Mid';
+}
+/** Recompute level on a stored job (after a source told us more, or the rules improved). */
+export function relevel(job) {
+  job.level = job.type === 'Internship' ? 'Intern' : inferLevel(job.title, job.description || '', { hint: job.levelHint, years: job.yearsMin ?? null });
+  if (job.level === 'Intern' && job.type !== 'Internship') job.type = 'Internship';
+  return job;
 }
 
 export function inferCategory(title = '', text = '') {
@@ -176,9 +214,9 @@ export function extractEmails(text = '') {
 /** Fill all derived fields of a normalized job. Keeps any value the source already supplied. */
 export function enrich(job) {
   const text = job.description || '';
-  const typeText = `${job.title} ${job.typeHint || ''} ${text.slice(0, 800)}`;
-  const level = job.level || inferLevel(job.title, text);
-  const type = job.type || (level === 'Intern' ? 'Internship' : inferType(typeText));
+  const levelHint = job.levelHint || job.level || '';   // a level the source supplied is evidence, the title still wins
+  const type = job.type || (job.level === 'Intern' ? 'Internship' : inferType(job.title, job.typeHint, text));
+  const level = type === 'Internship' ? 'Intern' : (job.level || 'Mid');
   const locStr = Array.isArray(job.locations) ? job.locations.join('; ') : (job.location || '');
   const country = job.country || inferCountry(locStr || text.slice(0, 600));
   const skills = (job.skills?.length ? mergeSkills(job.skills, extractSkills(text, job.title)) : extractSkills(text, job.title));
@@ -187,14 +225,16 @@ export function enrich(job) {
     location: locStr,
     country,
     remote: job.remote ?? isRemote(locStr, text),
-    level: type === 'Internship' ? 'Intern' : level,
+    level, levelHint: Array.isArray(levelHint) ? levelHint.join(' ') : String(levelHint),
     type,
     skills,
     requirements: job.requirements?.length ? job.requirements : requirementLines(text),
     salary: cleanSalary(job.salary || extractSalary(text), type),
     emails: [...new Set([...(job.emails || []), ...extractEmails(text)])],
   };
-  return Object.assign(out, deepAttributes(out));
+  Object.assign(out, deepAttributes(out));
+  if (type !== 'Internship') { out.level = inferLevel(job.title, text, { hint: levelHint, years: out.yearsMin }); if (out.level === 'Intern') out.type = 'Internship'; }
+  return out;
 }
 function mergeSkills(given, found) {
   const m = new Map(found.map(s => [s.name.toLowerCase(), s]));

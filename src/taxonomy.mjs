@@ -108,7 +108,7 @@ export function yearsOf(title = '', text = '', level = '') {
     return best && { min: best.min, max: best.max };
   };
   const reqText = norm(text.split('\n').filter(l => /year|yrs/i.test(l)).join('\n'));
-  const r = earliest(norm(exp)) || earliest(norm(title)) || earliest(reqText);
+  const r = earliest(norm(title)) || earliest(norm(exp)) || earliest(reqText);
   if (r) return r;
   const s = `${title}\n${text}`.toLowerCase();
   if (/any \(new grads ok\)|new grads? ok/.test(exp.toLowerCase())) return { min: 0, max: null }; // "new grads ok" is a floor, not a cap
