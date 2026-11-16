@@ -536,3 +536,30 @@ dialog label.check input{width:auto;accent-color:var(--live)}
 /* extension card */
 .keyrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .keyrow code{flex:1;min-width:200px;padding:8px 12px;font-size:.92em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── links, "Scan my links", skill strength ── */
+.scanbox{margin:4px 0 18px;padding:16px;border-radius:var(--r3);border:1px solid var(--line2);background:transparent}
+.scan-head{display:flex;gap:16px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+.scan-head b{display:block}
+.scan-head span{color:var(--text2);font-size:.92em}
+.scan-act{display:flex;gap:8px;flex-wrap:wrap}
+#scanMsg{margin:10px 0 0;min-height:1.2em}
+.scan-sec{margin-top:14px}
+.scan-sec .lab{font-size:.85em;color:var(--text2);margin-bottom:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.found-link{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:6px 0;flex-wrap:wrap;word-break:break-all}
+.proj{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)}
+.proj:first-of-type{border-top:0}
+.proj a{font-weight:600;text-decoration:none}
+.proj a:hover{text-decoration:underline}
+.proj .chipset{margin-top:6px}
+.proj .btn{flex-shrink:0}
+.scan-notes{margin:12px 0 0;padding-left:18px;color:var(--text3);font-size:.86em}
+.scanbox .check{margin-top:12px}
+.chip .lv{width:7px;height:7px;border-radius:50%;margin-right:6px;flex-shrink:0;background:var(--text3)}
+.chip.lv-strong .lv{background:var(--live)}
+.chip.lv-working .lv{background:var(--warn)}
+.chip.lv-familiar .lv{background:transparent;box-shadow:inset 0 0 0 1.5px var(--text3)}
+.chip.lv-strong,.chip.lv-working,.chip.lv-familiar{padding-left:10px}
+.chip.sug{background:transparent;box-shadow:inset 0 0 0 1px var(--line3)}
+.sk.hit.strong{box-shadow:inset 0 0 0 1px var(--live);font-weight:600}
+@media (max-width:640px){.scan-act{width:100%}.scan-act .btn{flex:1}}

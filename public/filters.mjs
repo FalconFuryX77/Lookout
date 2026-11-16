@@ -251,12 +251,16 @@ export function fit(job, profile = {}) {
   for (const s of job.skills || []) { const n = skillName(s); (skillInfo(n).tech ? tech : general).push(n); }
   const has = n => mine.has(canon(n));
   const have = tech.filter(has), missing = tech.filter(n => !has(n)), genHave = general.filter(has);
+  // After "Scan my links", skills your own work shows count fully; ones only listed count a little less.
+  const str = profile.strength && Object.keys(profile.strength).length ? profile.strength : null;
+  const weight = n => { if (!str) return 1; const v = str[canon(n)]; return v == null ? 0.9 : v >= 0.75 ? 1 : v >= 0.45 ? 0.9 : 0.75; };
+  const strong = str ? have.filter(n => (str[canon(n)] ?? 0) >= 0.75) : [];
   let pct = 0;
-  if (mine.size && tech.length) pct = Math.round(100 * Math.min(1, have.length / Math.min(tech.length, 8)));
+  if (mine.size && tech.length) pct = Math.round(100 * Math.min(1, have.reduce((a, n) => a + weight(n), 0) / Math.min(tech.length, 8)));
   else if (mine.size && general.length) pct = Math.round(60 * Math.min(1, genHave.length / Math.min(general.length, 8)));
   const y = profile.yearsExp, need = job.yearsMin;
   const expGap = typeof y === 'number' && typeof need === 'number' ? Math.max(0, need - y) : 0;
-  return { pct, have, missing, general, genHave, expGap };
+  return { pct, have, missing, general, genHave, expGap, strong };
 }
 /** 0-100: how much of what the role asks for you have. */
 export function skillMatch(job, mine = []) { return fit(job, { skills: mine }).pct; }

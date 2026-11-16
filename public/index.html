@@ -129,7 +129,16 @@
           </div>
           <p class="muted small" id="cvMsg" style="margin:8px 0 16px;min-height:1.2em"></p>
           <div class="row2"><label>Name<input name="name" maxlength="80"></label><label>Headline<input name="headline" maxlength="120" placeholder="Computer science undergraduate"></label></div>
-          <div class="row2"><label>Link<input name="link" placeholder="Portfolio, GitHub or LinkedIn"></label><label>Email<input name="email" type="email" maxlength="120"></label></div>
+          <div class="row2"><label>Email<input name="email" type="email" maxlength="120"></label><label>Portfolio or personal site<input name="portfolio" maxlength="300" placeholder="yourname.dev" autocomplete="off" spellcheck="false"></label></div>
+          <div class="row2"><label>GitHub<input name="github" maxlength="200" placeholder="github.com/your-name" autocomplete="off" spellcheck="false"></label><label>LinkedIn<input name="linkedin" maxlength="200" placeholder="linkedin.com/in/your-name" autocomplete="off" spellcheck="false"></label></div>
+          <label>Other links <span class="muted">one per line: Kaggle, Hugging Face, LeetCode, Devpost, a blog…</span><textarea name="otherLinks" rows="2" spellcheck="false"></textarea></label>
+          <div class="scanbox" id="scanBox">
+            <div class="scan-head"><div><b>Scan my links</b><span>Reads your GitHub repositories, your site and the links above for skills and projects, on this computer. Nothing is added until you say so.</span></div>
+              <div class="scan-act"><button type="button" class="btn primary" id="scanBtn">Scan my links</button><button type="button" class="btn" id="liPick" title="On LinkedIn: More → Save to PDF, then pick that file here">Import LinkedIn PDF</button><input type="file" id="liFile" accept=".pdf,application/pdf" hidden></div></div>
+            <p class="muted small" id="scanMsg"></p>
+            <div id="scanOut"></div>
+            <label class="check"><input type="checkbox" name="rescan"><span>Scan again once a week</span></label>
+          </div>
           <label>Skills <span class="muted" id="skillCount"></span>
             <div class="chipset edit" id="skillChips"></div>
             <input name="skillAdd" id="skillAdd" placeholder="Add a skill and press Enter" autocomplete="off" spellcheck="false">
@@ -144,6 +153,19 @@
           <label>Pitch<textarea name="pitch" rows="3" placeholder="Two or three lines about you. Used when drafting outreach emails."></textarea></label>
           <div class="form-foot"><button class="btn primary">Save</button><button type="button" class="btn" id="rankNow">Show best matches</button><span class="muted small" id="profileMsg"></span></div>
         </form>
+        <form id="readForm" class="card form">
+          <div class="card-h"><h3>Reading your links</h3><span class="muted" id="readStatus"></span></div>
+          <p class="fine" style="margin-top:0">Some sites only show their content after their JavaScript runs. For those, Lookout opens a browser you already have, hidden, with an empty profile of its own, reads the page and closes it. It never touches your normal browser windows or logins.</p>
+          <div class="row2"><label>Browser for reading pages<select name="browser" id="browserSel"><option value="auto">Automatic</option></select></label>
+            <label>GitHub token (optional)<input name="githubToken" type="password" autocomplete="off" placeholder="Lifts GitHub’s 60-an-hour limit"></label></div>
+          <p class="fine" id="browserNote"></p>
+          <div class="form-foot"><button class="btn primary">Save</button><button type="button" class="btn ghost" id="browserAgain">Look for browsers again</button><span class="muted small" id="readMsg"></span></div>
+        </form>
+        <div class="card form" id="learnCard">
+          <div class="card-h"><h3>Best match learns from you</h3><label class="switch"><input type="checkbox" id="learnToggle"><span></span></label></div>
+          <p class="fine" style="margin-top:0">Roles you save, apply to or contact count for; roles you hide count against. Best match then leans toward roles like the ones you go for. It is worked out in this window from your own pipeline, and nothing is sent anywhere.</p>
+          <p class="muted small" id="learnMsg" style="margin:0"></p>
+        </div>
         <form id="pushForm" class="card form">
           <div class="card-h"><h3>Phone alerts</h3><span class="muted">Free, via the ntfy app</span></div>
           <ol class="steps"><li>Install <b>ntfy</b> and subscribe to a topic like <code id="topicIdea"></code></li><li>Enter it here and send a test.</li><li>Turn on the bell for a saved view.</li></ol>
@@ -155,7 +177,7 @@
         </form>
         <div class="card form" id="extCard">
           <div class="card-h"><h3>Browser extension</h3><span class="muted" id="extStatus"></span></div>
-          <p class="fine" style="margin-top:0">Open any job page in Edge or Chrome, click the Lookout button, and see which of the role's skills you have, whether it asks for more experience than you have, and whether Lookout already found it. It reads a page only when you click, and sends it only to this Lookout.</p>
+          <p class="fine" style="margin-top:0">Open any job page in Edge or Chrome, click the Lookout button, and see which of the role's skills you have, whether it asks for more experience than you have, and whether Lookout already found it. On your GitHub, Hugging Face, Stack Overflow, Kaggle or LeetCode profile the button shows a dot: click it to add the skills that page shows. It reads a page only when you click, and sends it only to this Lookout.</p>
           <ol class="steps"><li>In Edge or Chrome open <code>edge://extensions</code> or <code>chrome://extensions</code> and turn on <b>Developer mode</b>.</li><li>Choose <b>Load unpacked</b> and pick the folder <code id="extFolder"></code></li><li>Open the extension's options and paste this pairing key.</li></ol>
           <div class="keyrow"><code id="extKey">••••••••</code><button type="button" class="btn sm" id="extCopy">Copy</button><button type="button" class="btn sm ghost" id="extShow">Show</button><button type="button" class="btn sm ghost" id="extRotate" title="Make a new key; the extension has to be paired again">New key</button></div>
           <p class="muted small" id="extMsg" style="margin:10px 0 0;min-height:1.2em"></p>

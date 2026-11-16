@@ -187,10 +187,10 @@ const WIN1252 = { 128: '€', 133: '…', 145: '‘', 146: '’', 147: '“', 14
 const HEADINGS = {
   education: /^(education|academics?|academic (?:background|details|qualifications?|profile)|educational (?:background|qualifications?)|qualifications?|scholastic achievements?)$/,
   experience: /^((?:work|professional|relevant|industry|research)? ?experiences?|employment(?: history)?|work history|internships?|internship experience|professional background|career history)$/,
-  skills: /^((?:technical|core|key|relevant|computer|programming)? ?skills?(?: (?:&|and) (?:tools|technologies|interests|abilities|expertise))?|technical (?:proficiency|expertise|stack)|technologies|tech stack|tools(?: (?:&|and) technologies)?|skills summary|areas of expertise|competencies|core competencies)$/,
+  skills: /^((?:technical|core|key|relevant|computer|programming|top)? ?skills?(?: (?:&|and) (?:tools|technologies|interests|abilities|expertise))?|technical (?:proficiency|expertise|stack)|technologies|tech stack|tools(?: (?:&|and) technologies)?|skills summary|areas of expertise|competencies|core competencies)$/,
   summary: /^(summary|professional summary|profile|objective|career objective|about(?: me)?|overview|introduction)$/,
   projects: /^((?:personal|academic|key|selected|notable|side|open[- ]source)? ?projects?|project experience)$/,
-  other: /^(achievements?|awards?(?: (?:&|and) (?:honou?rs|achievements))?|honou?rs|certifications?|certificates|licenses|publications?|positions? of responsibility|leadership|extra-?curriculars?(?: activities)?|activities|volunteer(?:ing)?(?: experience)?|coursework|relevant coursework|courses|languages|interests|hobbies|references|contact|personal (?:details|information)|co-?curriculars?|research|patents|talks|open source)$/,
+  other: /^(achievements?|awards?(?: (?:&|and) (?:honou?rs|achievements))?|honou?rs(?: awards)?|certifications?|certificates|licenses|publications?|positions? of responsibility|leadership|extra-?curriculars?(?: activities)?|activities|volunteer(?:ing)?(?: experience)?|coursework|relevant coursework|courses|languages|interests|hobbies|references|contact|personal (?:details|information)|co-?curriculars?|research|patents|talks|open source)$/,
 };
 function headingOf(line) {
   const t = line.replace(/[:•|_\-–—=*#]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -218,24 +218,42 @@ const DEGREES = [
   ['Master', /\b(m\.?\s?tech|m\.?\s?sc?\.?|m\.?\s?eng|m\.?e\.|mba|mca|m\.?\s?s\.?(?= in| ,|,| \(|$)|master(?:'?s)?(?: of [a-z ]+)?|post[- ]?graduate|pgdm|pgp)\b/i],
   ['Bachelor', /\b(b\.?\s?tech|b\.?\s?e\.?(?= in| ,|,| \(|\b)|b\.?\s?sc?\.?|b\.?\s?eng|bca|bba|b\.?\s?com|b\.?\s?a\.?(?= in|,)|b\.?\s?s\.?(?= in|,| \()|bachelor(?:'?s)?(?: of [a-z ]+)?|undergraduate|integrated (?:m|b)\.?\s?tech|dual degree)\b/i],
   ['Diploma', /\b(diploma|associate(?:'s)? degree)\b/i],
-  ['School', /\b(class (?:xii|x|12|10)|higher secondary|senior secondary|secondary school|high school|intermediate|cbse|icse|isc|hsc|ssc|a[- ]levels?)\b/i],
+  ['School', /\b(class (?:xii|x|12|10)|(?:10|12)th (?:grade|standard|std)|higher secondary|senior secondary|secondary school|high school|intermediate|cbse|icse|isc|cisce|hsc|ssc|igcse|a[- ]levels?)\b/i],
 ];
 const SCHOOL = /\b(universit[yé]|university|institute|college|school|academy|polytechnic|iit|nit|iiit|bits|iisc|iim|vit|srm|mit|eth|epfl|vidyalaya|vidyapeeth)\b/i;
 
+/** A PDF made with LinkedIn's "Save to PDF": a sidebar (Contact, Top Skills, Languages, Certifications) and a main column. */
+export const isLinkedInPdf = text => /linkedin\.com\/in\/\S+\s*\(LinkedIn\)/i.test(text) || (/^Top Skills$/m.test(text) && /^Page \d+ of \d+$/m.test(text));
 export function parseResume(text) {
-  const lines = text.split('\n').map(l => l.trim());
+  const linkedin = isLinkedInPdf(text);
+  let lines = text.split('\n').map(l => l.trim());
+  if (linkedin) {
+    lines = lines.filter(l => !/^Page \d+ of \d+$/.test(l) && !/^\((?:LinkedIn|Portfolio|Personal|Company|Blog|Other)\)$/.test(l)).map(l => l.replace(/\s*\((?:LinkedIn|Portfolio|Personal|Company|Blog|Other)\)$/, ''));
+    // LinkedIn wraps long names over two lines ("... Management &" / "Engineering"): put them back together
+    for (let i = lines.length - 2; i >= 0; i--) if (/(?:&|,|\b(?:of|and|for|with|using|in|the|to))$/i.test(lines[i]) && lines[i + 1] && !headingOf(lines[i + 1])) lines.splice(i, 2, `${lines[i]} ${lines[i + 1]}`);
+    // the sidebar usually comes out first; the name, headline and place sit just above Summary / Experience
+    const main = lines.findIndex(l => /^(summary|experience)$/i.test(l));
+    if (main > 0) {
+      let start = main; for (let i = main - 1; i >= Math.max(0, main - 5); i--) if (/^[A-Za-zÀ-ÿ.'’-]+(?: [A-Za-zÀ-ÿ.'’-]+){1,3}$/.test(lines[i]) && !/^(top skills|languages|certifications|honors-awards|publications|contact)$/i.test(lines[i])) { start = i; break; }
+      if (start < main) lines = [...lines.slice(start, main), ...lines.slice(0, start), ...lines.slice(main)];
+    }
+    text = lines.join('\n');
+  }
   // sections
   const sections = {}; let cur = 'top';
   // Once the first real heading has passed, any short ALL-CAPS line is a heading too, even one we have no
   // name for: its lines must not leak into the section above it.
-  const capsHeading = l => cur !== 'top' && l.length >= 4 && l.length <= 60 && /^[A-Z][A-Z &/,'’-]+$/.test(l) && l.split(/\s+/).length <= 7;
+  // (LinkedIn's headings are always the same few words, and its company names are often in capitals: "ACM MPSTME")
+  const capsHeading = l => !linkedin && cur !== 'top' && l.length >= 4 && l.length <= 60 && /^[A-Z][A-Z &/,'’-]+$/.test(l) && l.split(/\s+/).length <= 7;
   for (const l of lines) { const h = headingOf(l) || (capsHeading(l) ? 'other' : null); if (h) { cur = h; continue; } (sections[cur] ||= []).push(l); }
   const sec = k => (sections[k] || []).filter(Boolean);
 
   const email = text.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i)?.[0] || '';
   const phone = (text.match(/(?:\+\d{1,3}[ -]?)?(?:\(?\d{3,5}\)?[ -]?)?\d{3,5}[ -]?\d{4,6}/g) || []).map(p => p.trim()).find(p => p.replace(/\D/g, '').length >= 10 && p.replace(/\D/g, '').length <= 13 && !/^(19|20)\d{2}\s*[-–]\s*(19|20)\d{2}$/.test(p)) || '';
-  const links = [...new Set((text.match(/(?:https?:\/\/)?(?:www\.)?(?:github\.com|linkedin\.com\/in|gitlab\.com|leetcode\.com|kaggle\.com|behance\.net|dribbble\.com|medium\.com\/@?|[a-z0-9-]+\.(?:dev|io|me|app|tech|xyz|vercel\.app|github\.io|netlify\.app))\/?[^\s|,;)>\]]*/gi) || []).map(u => u.replace(/[.,]+$/, '')).filter(u => !/@/.test(u) && u.length > 6))].slice(0, 6)
-    .map(u => /^https?:/i.test(u) ? u : `https://${u}`);
+  const links = [...new Set((text.match(/(?:https?:\/\/)?(?:www\.)?(?:github\.com|linkedin\.com\/in|gitlab\.com|leetcode\.com|kaggle\.com|behance\.net|dribbble\.com|medium\.com\/@?|[a-z0-9-]+\.(?:dev|io|me|app|tech|xyz|vercel\.app|github\.io|netlify\.app))\/?[^\s|,;)>\]]*/gi) || []).map(u => u.replace(/[.,]+$/, '')).filter(u => !/@/.test(u) && u.length > 6)
+    .map(u => /^https?:/i.test(u) ? u : `https://${u}`)
+    // LinkedIn adds tracking to the profile link it puts in the file (?lipi=...&licu=...): keep the plain address
+    .map(u => /linkedin\.com\/in\//i.test(u) ? u.replace(/[?#].*$/, '').replace(/\/$/, '').replace(/^https:\/\/(?!www\.)/i, 'https://www.') : u))].slice(0, 6);
   const top = sec('top').slice(0, 8);
   const name = top.find(l => /^[A-Za-zÀ-ÿ.'’-]+(?: [A-Za-zÀ-ÿ.'’-]+){1,3}$/.test(l) && l.length <= 40 && !/resume|curriculum|vitae|engineer|developer|student|intern\b/i.test(l)) || '';
   const headline = top.find(l => l !== name && l.length <= 80 && /engineer|developer|student|scientist|designer|analyst|researcher|undergraduate|graduate|intern\b|manager/i.test(l) && !/@|https?:|\d{5}/.test(l)) || '';
@@ -247,7 +265,7 @@ export function parseResume(text) {
   const known = t => found.has(skillInfo(t).canonical.toLowerCase());
   const addListed = (body, listed) => {
     for (let tok of body.split(/[,;|•·●▪]|\s{3,}|\s\/\s/)) {
-      tok = tok.replace(/\((?:basic|intermediate|advanced|proficient|familiar|beginner|expert|learning)[^)]*\)/i, '').replace(/^[\s\-–•*]+|[\s.]+$/g, '').replace(/^and\s+/i, '').trim();
+      tok = tok.replace(/\((?:basic|intermediate|advanced|proficient|familiar|beginner|expert|learning)[^)]*\)/i, '').replace(/\s*\((?:programming language|software|framework|library|tool|platform)\)\s*$/i, '').replace(/^[\s\-–•*]+|[\s.]+$/g, '').replace(/^and\s+/i, '').trim();
       const n = tok.split(/\s+/).length;
       if (tok.length < 2 || tok.length > 36 || n > 4 || /[.!?:]$/.test(tok) || /^(etc|others?|and more|skills?|tools?|languages?|frameworks?|libraries|databases?|technologies|familiar with|proficient in)$/i.test(tok)) continue;
       if (/^(a|an|the|with|for|to|of|in|on|by|using|built|developed|worked|experience)\b/i.test(tok)) continue;
@@ -260,7 +278,9 @@ export function parseResume(text) {
   // 1. the Skills section: "Label: a, b, c" lines and their wrapped continuations
   for (const l of sec('skills')) { if (BULLET.test(l) && l.split(/\s+/).length > 14 && !/:/.test(l.slice(0, 40))) continue; addListed(l.replace(BULLET, '').replace(/^[A-Za-z &/+-]{2,36}:\s*/, ''), true); }
   // 2. tech-stack lines under a project or a job: a bare comma list such as "Flutter, Kotlin, FastAPI, AES-256-GCM"
-  const isStack = l => !!l && !BULLET.test(l) && l.length <= 140 && !/[.!?]$/.test(l) && (l.match(/,/g) || []).length >= 2 && l.split(',').every(x => { const t = x.trim(); return t.length >= 1 && t.length <= 30 && t.split(/\s+/).length <= 4; });
+  // ...and at least half of it technical, so a place line like "Mumbai, Maharashtra, India" is not a stack
+  const isStack = l => !!l && !BULLET.test(l) && l.length <= 140 && !/[.!?]$/.test(l) && (l.match(/,/g) || []).length >= 2 && l.split(',').every(x => { const t = x.trim(); return t.length >= 1 && t.length <= 30 && t.split(/\s+/).length <= 4; })
+    && l.split(',').filter(x => skillInfo(x.trim()).tech).length * 2 >= l.split(',').length;
   for (const k of ['projects', 'experience']) for (const l of sec(k)) if (isStack(l)) addListed(l, true);
   const skills = [...found.values()].sort((a, b) => b.tech - a.tech).slice(0, 80);
 
@@ -298,14 +318,18 @@ export function parseResume(text) {
   expLines.forEach((l, i) => {
     const r = l.match(RANGE); if (!r) return;
     const a = monthIndex(r[1]), b = monthIndex(r[2], true); if (a === null || b === null || b < a) return;
-    const rest = l.replace(RANGE, '').replace(/[|•·,\s–-]+$/, '').replace(/^[|•·,\s–-]+/, '').trim();
-    const near = [expLines[i - 1], expLines[i + 1]].find(x => x && !RANGE.test(x) && x.length < 90 && !BULLET.test(x) && !isStack(x)) || '';
-    const title = (rest || near).slice(0, 110);
+    const rest = l.replace(RANGE, '').replace(/\(\s*\d+\s+(?:years?|yrs?|months?|mos?)(?:\s+\d+\s+(?:months?|mos?))?\s*\)/i, '').replace(/[|•·,\s–-]+$/, '').replace(/^[|•·,\s–-]+/, '').trim();
+    const plain = x => x && !RANGE.test(x) && x.length < 90 && !BULLET.test(x) && !isStack(x);
+    const near = [expLines[i - 1], expLines[i + 1]].find(plain) || '';
+    // LinkedIn puts the company, then the title, then the dates on their own lines
+    const title = (rest || (linkedin && plain(expLines[i - 1]) && plain(expLines[i - 2]) ? `${expLines[i - 1]}, ${expLines[i - 2]}` : near)).slice(0, 110);
     const internship = /\bintern(ship)?\b|trainee|co-?op/i.test(title);
+    // a club, student chapter or society post: listed, but it isn't a job either
+    const activity = !internship && /\b(club|society|chapter|student|committee|council|fest|volunteer|ambassador|ACM|IEEE|GDSC|GDG|NSS|NCC|e-?cell|hackathon|association)\b/i.test(title);
     // "14 May – 14 July" is two months, "May – July" is three
     const dayToDay = /^\d{1,2}\D/.test(r[1].trim()) && /^\d{1,2}\D/.test(r[2].trim());
-    experience.push({ title, from: r[1], to: r[2], months: Math.max(1, b - a + (dayToDay ? 0 : 1)), internship });
-    if (!internship) spans.push([a, b]); // years of experience means jobs held; internships are listed, not counted
+    experience.push({ title, from: r[1], to: r[2], months: Math.max(1, b - a + (dayToDay ? 0 : 1)), internship, activity });
+    if (!internship && !activity) spans.push([a, b]); // years of experience means jobs held; internships and club posts are listed, not counted
   });
   spans.sort((x, y) => x[0] - y[0]); let months = 0, endAt = -1;
   for (const [a, b] of spans) { const s = Math.max(a, endAt + 1); if (b >= s) { months += b - s + 1; endAt = b; } }
@@ -315,6 +339,6 @@ export function parseResume(text) {
     name, headline, email, phone, links, summary, skills, education, experience: experience.slice(0, 12), projects: projects.slice(0, 12),
     yearsExp: Math.round(months / 6) / 2, degree: topEdu?.level || '', gradYear: topEdu?.end || null,
     student: !!(topEdu?.end && topEdu.end >= nowYear && topEdu.level !== 'School'),
-    chars: text.length,
+    chars: text.length, source: linkedin ? 'linkedin' : 'resume',
   };
 }

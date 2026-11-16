@@ -22,6 +22,11 @@ import { enrich } from './src/enrich.mjs';
 import { normCompany } from './src/dedupe.mjs';
 import { namedEmployer, sameRole, boardSlugs, linkRank, bestLink, isShortLink, followRedirects, REPOSTER } from './src/root.mjs';
 import { pool, domainOf, canonicalUrl, exportHttpValidators, importHttpValidators } from './src/util.mjs';
+import { scanLinks, sortLinks } from './src/scan.mjs';
+import { githubTarget as githubTargetOf } from './src/github.mjs';
+import { weighSkills } from './src/evidence.mjs';
+import { findBrowsers, pickBrowser } from './src/browser.mjs';
+import { extractSkills, skillInfo } from './public/skills.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 // "Only roles mentioning" and "Hide roles mentioning" read the whole posting, which only the scanner has.
@@ -38,6 +43,8 @@ S.settings.linkedinSearches ||= DEFAULT_LINKEDIN_SEARCHES;
 S.settings.discover ??= true;          // find new boards and lists on its own
 S.settings.pace ||= 'auto';            // auto | saver | slow
 S.settings.offSources ||= [];          // sources switched off by hand
+S.settings.browser ||= 'auto';         // which installed browser reads JavaScript-heavy pages: auto | none | an id | a path
+S.settings.githubToken ||= '';         // optional: lifts GitHub's 60-requests-an-hour limit for "Scan my links"
 // ---------------------------------------------------------------- who may talk to the scanner
 // Lookout listens on this computer, so any web page open in your browser can try to reach it. Three rules:
 //  1. The request must be addressed to this computer by address (localhost / an IP), never by a domain
@@ -95,7 +102,7 @@ function cleanProfile(b = {}, prev = {}) {
   const list = (v, n, len) => (Array.isArray(v) ? v : []).map(x => str(x, len)).filter(Boolean).slice(0, n);
   const num = (v, lo, hi) => (v === '' || v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Math.min(hi, Math.max(lo, Number(v))));
   const pick = k => (k in b ? b[k] : prev[k]);
-  return {
+  const out = {
     name: str(b.name, 80), pitch: str(b.pitch, 1500), link: str(b.link, 300),
     skills: [...new Map(list(b.skills, 120, 40).map(s => [s.toLowerCase(), s])).values()],
     headline: str(pick('headline'), 120), email: str(pick('email'), 120), phone: str(pick('phone'), 40),
@@ -103,7 +110,25 @@ function cleanProfile(b = {}, prev = {}) {
     yearsExp: num(pick('yearsExp'), 0, 50), degree: str(pick('degree'), 20), gradYear: num(pick('gradYear'), 1970, 2100),
     projects: list(pick('projects'), 12, 260), strictFit: pick('strictFit') !== false, manualSkills: list(pick('manualSkills'), 120, 40),
     resume: pick('resume') && typeof pick('resume') === 'object' ? { file: str(pick('resume').file, 120), at: str(pick('resume').at, 30), chars: Number(pick('resume').chars) || 0 } : null,
+    // your links, and where each skill came from (so a scan can tell what your work shows from what you listed)
+    github: str(pick('github'), 200), linkedin: str(pick('linkedin'), 200), portfolio: str(pick('portfolio'), 300), otherLinks: list(pick('otherLinks'), 12, 300),
+    rescan: pick('rescan') === true, resumeSkills: list(pick('resumeSkills'), 150, 40), linkedinSkills: list(pick('linkedinSkills'), 100, 40),
+    acceptedSkills: list(pick('acceptedSkills'), 150, 40), ignoredSkills: list(pick('ignoredSkills'), 300, 40),
+    pageSkills: (Array.isArray(pick('pageSkills')) ? pick('pageSkills') : []).slice(0, 200).map(x => ({ name: str(x?.name, 40), site: str(x?.site, 60), url: str(x?.url, 300), at: str(x?.at, 30) })).filter(x => x.name),
+    linkedinPdf: pick('linkedinPdf') && typeof pick('linkedinPdf') === 'object' ? { file: str(pick('linkedinPdf').file, 120), at: str(pick('linkedinPdf').at, 30) } : null,
+    scan: prev.scan || null, // written only by "Scan my links"
   };
+  // profiles saved before the separate link boxes: sort the old single link (and the résumé's links) into them
+  if (!out.github && !out.linkedin && !out.portfolio && !out.otherLinks.length && !('github' in b)) {
+    const s = sortLinks([out.link, ...out.links]); Object.assign(out, { github: s.github, linkedin: s.linkedin, portfolio: s.portfolio, otherLinks: s.other.slice(0, 12) });
+  }
+  out.link ||= out.portfolio || out.github || out.linkedin || out.otherLinks[0] || ''; // the one link outreach drafts use
+  return Object.assign(out, weighSkills(out));
+}
+/** The profile as the app sees it: the scan's per-repository detail stays on the server. */
+function publicProfile(p) {
+  if (!p) return p; const sc = p.scan;
+  return { ...p, scan: sc ? { at: sc.at, browser: sc.browser, notes: sc.notes, foundLinks: sc.foundLinks, github: sc.github ? { user: sc.github.user, repos: sc.github.repos.length, profile: sc.github.profile, rateLeft: sc.github.rateLeft, rateReset: sc.github.rateReset } : null, pages: sc.sites?.pages || [] } : null };
 }
 const blankProfile = () => cleanProfile({});
 function alertScopes() {
@@ -118,6 +143,40 @@ function switchProfile(id) {
   for (const k of ['profile', 'filterSets', 'tracking', 'blockedCompanies']) delete to[k];
   S.activeProfile = id; return true;
 }
+// ---------------------------------------------------------------- "Scan my links"
+const scanState = { running: false, profileId: null, progress: null, startedAt: null, error: null, finishedAt: null };
+const publicScanState = () => ({ running: scanState.running, profileId: scanState.profileId, progress: scanState.progress, startedAt: scanState.startedAt, finishedAt: scanState.finishedAt, error: scanState.error });
+const profileById = id => id === S.activeProfile ? S.settings.profile : S.profiles.find(x => x.id === id)?.profile;
+async function runScan(id, { quiet = false } = {}) {
+  const prof = profileById(id); if (!prof || scanState.running) return;
+  Object.assign(scanState, { running: true, profileId: id, progress: { step: 'start', done: 0, total: 1 }, startedAt: new Date().toISOString(), error: null });
+  broadcast('scan', publicScanState());
+  try {
+    const result = await scanLinks(prof, { token: S.settings.githubToken, browserChoice: S.settings.browser, log, onProgress: pr => { scanState.progress = pr; broadcast('scan', publicScanState()); } });
+    // the profile may have been switched or edited meanwhile: store on whichever object holds it now
+    const now = profileById(id); if (!now) return;
+    // a read that failed this time (GitHub's hourly limit, a site that was down) keeps what the last good scan found
+    const old = now.scan;
+    if (old?.github?.repos?.length && !result.github?.repos?.length && githubTargetOf(now.github)?.user?.toLowerCase() === old.github.user?.toLowerCase()) {
+      result.github = old.github; result.notes.push(`Kept the GitHub results from ${new Date(old.at).toLocaleDateString()}.`);
+    }
+    if (old?.sites?.evidence?.length && result.sites && !result.sites.pages.some(x => x.ok)) { result.sites = old.sites; result.notes.push('Kept what your site showed last time.'); }
+    const next = cleanProfile({ ...now, scan: undefined }, { ...now, scan: result });
+    if (id === S.activeProfile) S.settings.profile = next; else S.profiles.find(x => x.id === id).profile = next;
+    const gh = result.github; log(`scan: ${gh ? `${gh.repos.length} repos` : 'no GitHub'}, ${result.sites?.pages.filter(x => x.ok).length || 0} pages${result.browser ? ` (${result.browser})` : ''}; ${next.suggestions.length} suggestions${quiet ? ' (weekly)' : ''}`);
+    store.touch(); await store.save();
+  } catch (e) { scanState.error = e.message; log('scan error', e.message); }
+  finally { Object.assign(scanState, { running: false, progress: null, finishedAt: new Date().toISOString() }); broadcast('scan', publicScanState()); }
+}
+// weekly re-scan for profiles that asked for it, one at a time
+setInterval(async () => {
+  if (scanState.running) return;
+  for (const pr of [{ id: S.activeProfile, profile: S.settings.profile }, ...S.profiles.filter(x => x.id !== S.activeProfile)]) {
+    const p = pr.profile; if (!p?.rescan || !(p.github || p.portfolio || p.otherLinks?.length)) continue;
+    if (p.scan?.at && Date.now() - Date.parse(p.scan.at) < 7 * 864e5) continue;
+    await runScan(pr.id, { quiet: true }); return;
+  }
+}, 30 * 60e3);
 async function rawBody(req, max = 8e6) { const chunks = []; let n = 0; for await (const c of req) { n += c.length; if (n > max) throw new Error('That file is too large (8 MB is the limit).'); chunks.push(c); } return Buffer.concat(chunks); }
 
 importHttpValidators(S.httpValidators); // resume: ask feeds "anything new since last time?" instead of re-downloading
@@ -689,8 +748,8 @@ async function route(req, res) {
   }
   if (m === 'GET' && p.startsWith('/api/job/')) { const j = store.byId.get(decodeURIComponent(p.slice(9))); return j ? json(res, 200, view(j)) : json(res, 404, { error: 'Not found' }); }
   if (m === 'GET' && p === '/api/meta') {
-    const { ntfyToken, extKey, deviceKey, ...settings } = S.settings;
-    return json(res, 200, { sourceInfo: await sourcesInfo(), profiles: S.profiles.map(p => ({ id: p.id, label: p.label, active: p.id === S.activeProfile })), settings: { ...settings, hasToken: !!ntfyToken }, filterSets: S.filterSets, tracking: S.tracking, blockedCompanies: S.blockedCompanies, sources: sourcesMeta(), watch: S.watch, alerts: S.alerts.slice(0, 50), funding: S.funding.slice(0, 300), stats: { jobs: S.jobs.length, companies: Object.keys(S.companies).length, boards: boards().length, funded: Object.values(S.companies).filter(c => fundingInfo(c)).length } });
+    const { ntfyToken, extKey, deviceKey, githubToken, ...settings } = S.settings;
+    return json(res, 200, { sourceInfo: await sourcesInfo(), profiles: S.profiles.map(p => ({ id: p.id, label: p.label, active: p.id === S.activeProfile })), settings: { ...settings, profile: publicProfile(settings.profile), hasToken: !!ntfyToken, hasGithubToken: !!githubToken }, scanState: publicScanState(), learn: S.settings.learn !== false, filterSets: S.filterSets, tracking: S.tracking, blockedCompanies: S.blockedCompanies, sources: sourcesMeta(), watch: S.watch, alerts: S.alerts.slice(0, 50), funding: S.funding.slice(0, 300), stats: { jobs: S.jobs.length, companies: Object.keys(S.companies).length, boards: boards().length, funded: Object.values(S.companies).filter(c => fundingInfo(c)).length } });
   }
   if (m === 'GET' && p === '/api/signals') return json(res, 200, { companies: signals() });
   if (m === 'GET' && p === '/api/discovery') return json(res, 200, discoveryOverview());
@@ -732,6 +791,9 @@ async function route(req, res) {
     if (['auto', 'saver', 'slow'].includes(b.pace) && b.pace !== s.pace) { s.pace = b.pace; for (const k of Object.keys(nextAt)) if (k !== 'lists') nextAt[k] = Math.min(nextAt[k] || 0, Date.now() + paced(60e3)); }
     if (Array.isArray(b.linkedinSearches)) { s.linkedinSearches = b.linkedinSearches.map(x => ({ keywords: String(x?.keywords || '').trim().slice(0, 80), location: String(x?.location || '').trim().slice(0, 80), remote: !!x?.remote })).filter(x => x.keywords).slice(0, 12); nextAt.linkedin = 0; }
     if (b.profile) s.profile = cleanProfile(b.profile, s.profile);
+    if ('browser' in b) s.browser = str(b.browser, 400) || 'auto';
+    if ('githubToken' in b && b.githubToken !== '••••') s.githubToken = str(b.githubToken, 200);
+    if ('learn' in b) s.learn = !!b.learn;
     store.touch(); await store.save(); return json(res, 200, { ok: true });
   }
   if (m === 'POST' && p === '/api/resume') {
@@ -742,6 +804,30 @@ async function route(req, res) {
       if (text.replace(/\s/g, '').length < 80) return json(res, 400, { error: 'There is not enough text there to read a résumé from.' });
       return json(res, 200, { file, parsed: parseResume(text) });
     } catch (e) { return json(res, 400, { error: e.message || 'That file could not be read.' }); }
+  }
+  if (m === 'POST' && p === '/api/profile/scan') {
+    if (scanState.running) return json(res, 409, { error: 'A scan is already running.' });
+    const prof = S.settings.profile || {};
+    if (!prof.github && !prof.portfolio && !(prof.otherLinks || []).length) return json(res, 400, { error: 'Add your GitHub, your site or another link first, and save.' });
+    runScan(S.activeProfile).catch(e => log('scan failed', e.message));
+    return json(res, 200, { started: true });
+  }
+  if (m === 'GET' && p === '/api/profile/scan') return json(res, 200, publicScanState());
+  if (m === 'POST' && p === '/api/profile/skills') {
+    // accept or ignore suggested skills, or bring ignored ones back
+    const b = await body(req); const prof = S.settings.profile || {};
+    const names = v => (Array.isArray(v) ? v : []).map(x => str(x, 40)).filter(Boolean);
+    const low = s => s.toLowerCase(); const acc = names(b.accept), ign = names(b.ignore), un = new Set(names(b.unignore).map(low));
+    const next = { ...prof,
+      skills: [...new Map([...(prof.skills || []), ...acc].map(x => [low(x), x])).values()],
+      acceptedSkills: [...new Set([...(prof.acceptedSkills || []), ...acc])],
+      ignoredSkills: [...new Set([...(prof.ignoredSkills || []), ...ign])].filter(x => !un.has(low(x))) };
+    S.settings.profile = cleanProfile(next, prof); store.touch(); await store.save();
+    return json(res, 200, { profile: publicProfile(S.settings.profile) });
+  }
+  if (m === 'GET' && p === '/api/browsers') {
+    const list = await findBrowsers({ again: url.searchParams.get('again') === '1' }); const chosen = await pickBrowser(S.settings.browser);
+    return json(res, 200, { browsers: list.map(b => ({ id: b.id, name: b.name, engine: b.engine, path: b.path, isDefault: b.isDefault, usable: b.usable, auto: b.auto })), choice: S.settings.browser, using: chosen ? { id: chosen.id, name: chosen.name, path: chosen.path } : null });
   }
   if (m === 'POST' && p === '/api/profiles') {
     const b = await body(req); const label = str(b.label, 40);
@@ -777,7 +863,7 @@ async function route(req, res) {
     const paired = sameKey(bearer(req), S.settings.extKey);
     if (paired) { S.settings.extSeen = new Date().toISOString(); store.touch(); }
     const prof = S.settings.profile || {}; const label = S.profiles.find(x => x.id === S.activeProfile)?.label || 'Me';
-    const you = { label, name: prof.name || '', skills: prof.skills || [], yearsExp: prof.yearsExp ?? null, strictFit: prof.strictFit !== false };
+    const you = { label, name: prof.name || '', skills: prof.skills || [], strength: prof.strength || {}, yearsExp: prof.yearsExp ?? null, strictFit: prof.strictFit !== false };
     if (m === 'GET' && p === '/api/ext/hello') return json(res, 200, { app: 'lookout', paired, ...(paired ? { profile: you, port: PORT } : {}) });
     // the page the extension read, shaped like any other posting
     const posting = b => {
@@ -815,6 +901,28 @@ async function route(req, res) {
       try { await fetchBoard(target); } catch (e) { return json(res, 400, { error: `That careers site did not answer (${e.message}).` }); }
       const w = { id: Date.now().toString(36), name: String(b.company || target.board).slice(0, 80), ...target, addedAt: new Date().toISOString() };
       S.watch.unshift(w); store.touch(); nextAt.ats = 0; return json(res, 200, w);
+    }
+    if (m === 'POST' && p === '/api/ext/profile-page') {
+      // a profile page you are looking at (GitHub, Hugging Face, Stack Overflow...): which skills it shows, and which are new to you
+      const b = await body(req); const pg = b?.page || {}; const url = str(pg.url, 600);
+      const mine = new Set((prof.skills || []).map(n => skillInfo(n).canonical.toLowerCase()));
+      const found = new Map();
+      for (const s of [...extractSkills((Array.isArray(pg.tags) ? pg.tags : []).map(t => str(t, 60)).join('\n'), ''), ...extractSkills(String(pg.text || '').slice(0, 60000), str(pg.title, 200))]) if (skillInfo(s.name).tech && !found.has(s.name)) found.set(s.name, { name: s.name, have: mine.has(s.name.toLowerCase()) });
+      const same = u => String(u || '').toLowerCase().replace(/^https?:\/\/(www\.)?/, '').replace(/[?#].*$/, '').replace(/\/$/, '');
+      const linked = [prof.github, prof.portfolio, ...(prof.otherLinks || [])].some(l => l && same(l) === same(url));
+      return json(res, 200, { skills: [...found.values()].slice(0, 60), linked });
+    }
+    if (m === 'POST' && p === '/api/ext/profile-add') {
+      const b = await body(req); const url = str(b.url, 600); const site = str(b.site, 60) || 'profile';
+      if (!/^https:\/\//i.test(url)) return json(res, 400, { error: 'That page has no web address.' });
+      const names = (Array.isArray(b.skills) ? b.skills : []).map(x => skillInfo(str(x, 40)).canonical).filter(Boolean).slice(0, 60);
+      const have = new Set((prof.skills || []).map(n => n.toLowerCase())); const fresh = names.filter(n => !have.has(n.toLowerCase()));
+      const at = new Date().toISOString(); const next = { ...prof, skills: [...(prof.skills || []), ...fresh], pageSkills: [...(prof.pageSkills || []), ...fresh.map(name => ({ name, site, url, at }))] };
+      let linkSaved = false;
+      if (b.saveLink) { const same = u => String(u || '').toLowerCase().replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''); if (![prof.github, prof.portfolio, prof.linkedin, ...(prof.otherLinks || [])].some(l => l && same(l) === same(url))) { if (/^https:\/\/github\.com\/[^/]+\/?$/i.test(url) && !prof.github) next.github = url; else next.otherLinks = [...(prof.otherLinks || []), url].slice(0, 12); linkSaved = true; } }
+      S.settings.profile = cleanProfile(next, prof); store.touch(); await store.save(); broadcast('profile', { changed: true });
+      const np = S.settings.profile;
+      return json(res, 200, { added: fresh.length, linkSaved, profile: { label, name: np.name || '', skills: np.skills || [], strength: np.strength || {}, yearsExp: np.yearsExp ?? null, strictFit: np.strictFit !== false } });
     }
     return json(res, 404, { error: 'Unknown extension request.' });
   }

@@ -2,9 +2,10 @@
 // 1. read the job on the page you are looking at (reader.js, injected only now, only into this tab)
 // 2. ask your Lookout to compare it with your profile and check whether it already has the role
 // 3. if Lookout is closed, compare skills here, from your profile as of the last time it was connected
-import { readJobPage } from './reader.js';
-import { extractSkills } from './lib/skills.mjs';
+import { readJobPage, readProfilePage } from './reader.js';
+import { extractSkills, skillInfo } from './lib/skills.mjs';
 import { fit } from './lib/filters.mjs';
+import { profileSiteOf } from './profiles.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -24,6 +25,9 @@ const call = async (path, body) => {
 const forced = Number(new URLSearchParams(location.search).get('tab'));
 const [tab] = forced ? [await chrome.tabs.get(forced)] : await chrome.tabs.query({ active: true, currentWindow: true });
 if (!tab || !/^https?:/.test(tab.url || '')) { status('', ''); say('Open a job posting, then click the Lookout button.'); throw new Error('no page'); }
+// a profile page (GitHub, Hugging Face, Stack Overflow, Kaggle, ...): offer the skills it shows instead
+const site = profileSiteOf(tab.url);
+if (site) { await profilePage(site); throw new Error('profile page'); }
 let page;
 try { [{ result: page }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readJobPage }); }
 catch { say('This page can’t be read. Browser pages and the extension store are off limits to extensions.'); throw new Error('unreadable'); }
@@ -50,6 +54,43 @@ if (hello?.paired) {
     const ft = fit({ skills }, settings.profile);
     render({ profile: settings.profile, role: { title: page.title, company: page.company, skills: skills.map(s => s.name) }, fit: ft, overReach: false, onFile: null, offline: true }, false);
   }
+}
+
+async function profilePage(site) {
+  let hello = null; try { hello = await call('/api/ext/hello'); } catch { }
+  if (hello?.paired) status(`Connected · ${hello.profile.label}`, 'on'); else status(hello ? 'Not paired' : 'Lookout is closed', 'off');
+  $('#how').textContent = `${site.name} profile`;
+  if (site.site === 'linkedin') {
+    say(`<b>LinkedIn profiles aren’t read.</b><br>To bring yours into Lookout, open your own LinkedIn profile, choose <b>More → Save to PDF</b>, then in Lookout go to Settings → Profile → <b>Import LinkedIn PDF</b>.${hello?.paired ? '<div class="acts"><button id="openSet">Open Lookout settings</button></div>' : ''}`);
+    $('#openSet')?.addEventListener('click', () => chrome.tabs.create({ url: `${base}/#settings` }));
+    return;
+  }
+  let pg;
+  try { [{ result: pg }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readProfilePage }); }
+  catch { say('This page can’t be read.'); return; }
+  let r = null;
+  if (hello?.paired) { try { r = await call('/api/ext/profile-page', { page: { ...pg, site: site.site, siteName: site.name, user: site.user } }); } catch (e) { say(esc(e.message)); return; } }
+  else { // compare here, with the profile from the last time Lookout was connected
+    const mine = new Set((settings.profile?.skills || []).map(s => skillInfo(s).canonical.toLowerCase()));
+    const found = new Map(); for (const s of [...extractSkills(pg.tags.join('\n'), ''), ...extractSkills(pg.text, pg.title)]) if (skillInfo(s.name).tech) found.set(s.name, true);
+    r = { skills: [...found.keys()].map(name => ({ name, have: mine.has(name.toLowerCase()) })), linked: false, offline: true };
+  }
+  const fresh = r.skills.filter(s => !s.have), have = r.skills.filter(s => s.have);
+  $('#main').innerHTML = `
+    <h1>${esc(site.name)}: ${esc(pg.name || site.user)}</h1>
+    <div class="co">${r.linked ? 'This page is in your Lookout profile' : 'If this is your profile, Lookout can add the skills it shows'}</div>
+    ${r.skills.length ? `${fresh.length ? `<div class="lab">Not in your profile yet (click to leave one out)</div><div class="chips">${fresh.map(s => `<button class="sk pick on" data-n="${esc(s.name)}">${esc(s.name)}</button>`).join('')}</div>` : ''}
+      ${have.length ? `<div class="lab">Already in your profile</div><div class="chips">${have.map(s => `<span class="sk hit">${esc(s.name)}</span>`).join('')}</div>` : ''}`
+      : '<p class="muted" style="margin:12px 0 0">No technical skills found on this page.</p>'}
+    ${r.offline ? `<div class="found"><b>${hello ? 'Pair the extension to add these' : 'Start Lookout to add these'}</b><div class="sub">${hello ? 'Open Settings here and paste the pairing key from Lookout.' : 'Skills were compared with your profile from the last time Lookout was running.'}</div></div>`
+      : `<div class="acts">${fresh.length ? `<button class="primary" id="addSk">Add ${fresh.length} skill${fresh.length === 1 ? '' : 's'} to my profile</button>` : ''}${!r.linked ? '<button id="addLink">Save this link to my profile</button>' : ''}</div><p class="msg" id="msg"></p>`}`;
+  if (r.offline) return;
+  const chosen = () => [...document.querySelectorAll('.sk.pick.on')].map(b => b.dataset.n);
+  const label = () => { const n = chosen().length; if ($('#addSk')) { $('#addSk').textContent = n ? `Add ${n} skill${n === 1 ? '' : 's'} to my profile` : 'Pick a skill to add'; $('#addSk').disabled = !n; } };
+  document.querySelectorAll('.sk.pick').forEach(b => b.onclick = () => { b.classList.toggle('on'); label(); });
+  const send = async (skills, saveLink) => { $('#msg').textContent = 'Adding…'; try { const d = await call('/api/ext/profile-add', { url: pg.url, site: site.name, skills, saveLink }); $('#msg').textContent = [d.added ? `Added ${d.added} skill${d.added === 1 ? '' : 's'}.` : '', d.linkSaved ? 'Saved the link; “Scan my links” in Lookout will read it too.' : ''].filter(Boolean).join(' ') || 'Nothing new to add.'; chrome.storage.local.set({ profile: d.profile, profileAt: Date.now() }); } catch (e) { $('#msg').textContent = e.message; } };
+  $('#addSk')?.addEventListener('click', e => { e.target.disabled = true; send(chosen(), !r.linked); $('#addLink')?.remove(); });
+  $('#addLink')?.addEventListener('click', e => { e.target.remove(); send([], true); });
 }
 
 function render(r, online) {

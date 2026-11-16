@@ -73,3 +73,27 @@ export function readJobPage() {
   out.looksLikeJob = !!jp || /\b(responsibilit|requirement|qualification|apply|experience|what you'?ll|about the role|job description)/i.test(out.description.slice(0, 6000));
   return out;
 }
+
+// Reads a profile page (GitHub, Hugging Face, Stack Overflow, Kaggle, LeetCode, Devpost, ...) for the skills
+// it shows: tags, languages and "built with" lists first, then the page's main text. Injected only when you
+// click the Lookout button, so it is self-contained like readJobPage.
+export function readProfilePage() {
+  const clean = s => String(s ?? '').replace(/\s+/g, ' ').trim();
+  const texts = sel => [...document.querySelectorAll(sel)].map(el => clean(el.textContent)).filter(t => t && t.length <= 60);
+  const host = location.hostname.replace(/^www\./, '');
+  const tags = new Set();
+  const add = list => { for (const t of list) tags.add(t); };
+  if (host === 'github.com') add(texts('[itemprop="programmingLanguage"], .pinned-item-list-item [itemprop="programmingLanguage"], a.topic-tag'));
+  if (host === 'stackoverflow.com') add(texts('a.post-tag, .s-tag, [class*="tag"] a[href*="/questions/tagged/"]'));
+  if (host === 'huggingface.co') add(texts('a[href*="library="], a[href*="other="], a[href*="pipeline_tag="], [class*="tag"]'));
+  if (host === 'devpost.com') add(texts('#built-with li, .cp-tag, .recognized-tag, [class*="built-with"] li'));
+  if (host === 'kaggle.com') add(texts('a[href*="/tags/"], [class*="Tag"], [class*="tag"]'));
+  if (host === 'leetcode.com') add(texts('a[href*="/tag/"], [class*="tag"], [class*="language"]'));
+  if (host === 'dev.to' || host === 'medium.com') add(texts('a[href*="/t/"], a[href*="/tag/"]'));
+  if (host === 'gitlab.com') add(texts('[class*="language"], a[href*="topics/"]'));
+  add(texts('[rel="tag"], a[class*="tag"], span[class*="tag"], li[class*="tag"], [class*="skill"] li, [class*="Skill"] li'));
+  const main = document.querySelector('main, [role="main"], #content, .content') || document.body;
+  const text = (main?.innerText || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').slice(0, 60000);
+  const name = (['[itemprop="name"]', '.p-name', '.vcard-fullname', 'h1'].map(q => clean(document.querySelector(q)?.textContent || '')).find(Boolean) || '').slice(0, 80);
+  return { url: location.href.replace(/#.*$/, ''), title: document.title.slice(0, 200), name, tags: [...tags].slice(0, 300), text };
+}

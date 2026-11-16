@@ -1,5 +1,6 @@
 import { skillInfo, SKILL_GROUPS } from './skills.mjs';
 import { linkRank } from './links.mjs';
+import { train, learnedBoost, explain } from './rank.mjs';
 const linkKind = (u, co) => ['copy', 'site', 'near', 'direct'][Math.max(0, linkRank(u, co))];
 const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } };
 import { NOT_KEY, filterWords, mentionsInSummary } from './filters.mjs';
@@ -153,9 +154,17 @@ const refreshJobs = () => { renderChips(); renderList(); deferred(); if ($('#she
 // One cached pass gives the list and every facet count; invalidated whenever the list re-renders.
 let evCache = null;
 const ev = () => (evCache ||= evaluate(S.jobs, S.filters, ctx()));
+// Best match learns from your pipeline; retrained only when what you saved, applied to or hid changes.
+let learned = null, learnedSig = '';
+function model() {
+  if (!S.meta || S.meta.learn === false) return null;
+  const t = S.meta.tracking || {}; const sig = `${S.jobs.length > 0}|${(profile().skills || []).length}|${Object.entries(t).map(([k, v]) => `${k}:${v.status}:${v.hidden ? 1 : 0}`).sort().join(',')}|${(S.meta.blockedCompanies || []).length}`;
+  if (sig !== learnedSig) { learnedSig = sig; learned = train(S.jobs, t, profile(), S.meta.blockedCompanies || []); }
+  return learned?.ready ? learned : null;
+}
 function filtered() {
   const out = [...ev().matched];
-  if (S.sort === 'best') { const p = profile(); const now = Date.now(); out.sort((a, b) => score(b, p, now) - score(a, p, now)); }
+  if (S.sort === 'best') { const p = profile(); const now = Date.now(); const m = model(); const sc = new Map(out.map(j => [j.id, score(j, p, now) + learnedBoost(m, j, p) * 20])); out.sort((a, b) => sc.get(b.id) - sc.get(a.id)); }
   else out.sort((a, b) => effectiveTime(b) - effectiveTime(a));
   return out;
 }
@@ -367,8 +376,9 @@ function renderDetail(j) {
     <div class="facts">${factsFor(j)}</div>
     ${reqs.length ? `<section class="sec"><h4>Requirements</h4><ul class="reqs ${reqs.length > 6 ? 'clamped' : ''}" id="reqs">${reqs.map(r => `<li>${esc(r)}</li>`).join('')}</ul>${reqs.length > 6 ? `<button class="link small" id="reqMore">Show all ${reqs.length}</button>` : ''}</section>` : ''}
     ${j.skills.length ? (() => {
-      const ft = fit(j, p); const techN = ft.have.length + ft.missing.length; const chip = (n, cls) => `<span class="sk ${cls}">${esc(n)}</span>`;
-      return `<section class="sec"><h4>Skills${p.skills?.length && techN ? `<span class="match-pct">You have ${ft.have.length} of ${techN}</span>` : ''}</h4>${techN ? `<div class="chipset">${ft.have.map(n => chip(n, 'hit')).join('')}${ft.missing.map(n => chip(n, 'tech')).join('')}</div>` : ''}${ft.general.length ? `<div class="chipset gen">${ft.general.map(n => chip(n, ft.genHave.includes(n) ? 'gen hit' : 'gen')).join('')}</div>` : ''}${ft.expGap >= 1 ? `<p class="fine">Asks for ${j.yearsMin}+ years of experience; your profile has ${p.yearsExp}.</p>` : ''}</section>`;
+      const ft = fit(j, p); const techN = ft.have.length + ft.missing.length; const chip = (n, cls, t) => `<span class="sk ${cls}"${t ? ` title="${esc(t)}"` : ''}>${esc(n)}</span>`;
+      const note = n => (p.skillNotes || {})[skillInfo(n).canonical.toLowerCase()];
+      return `<section class="sec"><h4>Skills${p.skills?.length && techN ? `<span class="match-pct">You have ${ft.have.length} of ${techN}${ft.strong.length ? ` · ${ft.strong.length} strong` : ''}</span>` : ''}</h4>${techN ? `<div class="chipset">${ft.have.map(n => ft.strong.includes(n) ? chip(n, 'hit strong', `Strong: ${note(n) || 'your own work uses it'}`) : chip(n, 'hit', note(n))).join('')}${ft.missing.map(n => chip(n, 'tech')).join('')}</div>` : ''}${ft.general.length ? `<div class="chipset gen">${ft.general.map(n => chip(n, ft.genHave.includes(n) ? 'gen hit' : 'gen')).join('')}</div>` : ''}${ft.expGap >= 1 ? `<p class="fine">Asks for ${j.yearsMin}+ years of experience; your profile has ${p.yearsExp}.</p>` : ''}</section>`;
     })() : ''}
     <section class="sec"><h4>Contact<button class="icon-btn sm" id="cRe" title="Check again">${ic('refresh')}</button></h4><div id="contacts"><span class="spin"></span></div></section>
     <section class="sec"><h4>Status</h4><div class="status-row">${STATUSES.map(([v, l]) => `<button data-st="${v}" class="${tr.status === v ? 'on' : ''}">${l}</button>`).join('')}</div>
@@ -850,7 +860,7 @@ function renderSettings() {
   f.ntfyTopic.value = s.ntfyTopic || ''; f.ntfyServer.value = s.ntfyServer || 'https://ntfy.sh'; f.ntfyToken.value = s.hasToken ? '••••' : ''; f.quietHours.value = s.quietHours || ''; f.desktopNotify.checked = !!s.desktopNotify;
   if (document.activeElement !== $('#liForm').searches) $('#liForm').searches.value = (s.linkedinSearches || []).map(x => [x.keywords, x.location || 'Worldwide', x.remote ? 'remote' : ''].filter(Boolean).join(' | ')).join('\n');
   if (!$('#topicIdea').textContent) $('#topicIdea').textContent = 'lookout-' + crypto.getRandomValues(new Uint32Array(2)).reduce((a, n) => a + n.toString(36), '');
-  renderProfile(); renderSourcesCard(); renderAccess();
+  renderProfile(); renderSourcesCard(); renderAccess(); renderReadCard(); renderLearn();
   $('#alertNote').textContent = s.ntfyTopic ? '' : 'Phone not connected yet'; syncAppearance();
   const bl = S.meta.blockedCompanies || [];
   $('#blockedList').innerHTML = bl.length ? bl.map(c => `<span class="chip"><span class="v">${esc(c)}</span><button data-unblock="${esc(c)}" title="Unblock">${ic('x')}</button></span>`).join('') : '<span class="muted small">None</span>';
@@ -876,7 +886,19 @@ $('#liForm').onsubmit = async e => {
   $('#liMsg').textContent = linkedinSearches.length ? `Saved. Checking ${linkedinSearches.length} search${linkedinSearches.length > 1 ? 'es' : ''} now` : 'Saved. LinkedIn is off'; await loadMeta();
 };
 // ───────────────────────────────────────────── profile, résumé, profiles
-const P = { dirty: false, skills: [], manual: [], resume: null, for: null }; // the profile being edited
+const P = { dirty: false, skills: [], manual: [], resumeSkills: [], resume: null, for: null }; // the profile being edited
+// Sorts links into the GitHub / LinkedIn / site / other boxes (the server does the same for old profiles).
+const NOT_SITE = /(^|\.)(github\.com|linkedin\.com|leetcode\.com|kaggle\.com|huggingface\.co|stackoverflow\.com|medium\.com|dev\.to|behance\.net|dribbble\.com|devpost\.com|gitlab\.com|x\.com|twitter\.com|instagram\.com|youtube\.com|codeforces\.com|codechef\.com|hackerrank\.com)$/;
+function sortLinks(list) {
+  const out = { github: '', linkedin: '', portfolio: '', other: [] };
+  for (const raw of list) { let u; try { u = new URL(/^https?:/i.test(raw) ? raw : `https://${raw}`); } catch { continue; } const h = u.hostname.replace(/^www\./, ''); const s = u.href.replace(/\/$/, '');
+    if (h === 'github.com' && u.pathname.split('/').filter(Boolean).length === 1 && !out.github) out.github = s;
+    else if (/(^|\.)linkedin\.com$/.test(h) && /\/in\//.test(u.pathname) && !out.linkedin) out.linkedin = s.replace(/[?#].*$/, '');
+    else if (!NOT_SITE.test(h) && !out.portfolio) out.portfolio = s;
+    else if (!out.other.includes(s)) out.other.push(s); }
+  return out;
+}
+const lvlOf = v => v >= 0.75 ? 'strong' : v >= 0.45 ? 'working' : 'familiar';
 const eduLine = e => [e.degree, e.school !== e.degree ? e.school : '', [e.start, e.end].filter(Boolean).join('–'), e.grade].filter(Boolean).join(', ');
 function renderProfile() {
   const list = S.meta.profiles || []; const active = list.find(x => x.active) || list[0] || { id: 'p1', label: 'Me' };
@@ -884,20 +906,25 @@ function renderProfile() {
   $('#profDel').disabled = list.length < 2;
   const p = profile(); const f = $('#profileForm');
   if (!P.dirty || P.for !== active.id) {
-    P.for = active.id; P.dirty = false; P.skills = [...(p.skills || [])]; P.manual = [...(p.manualSkills || [])]; P.resume = p.resume || null;
-    for (const k of ['name', 'headline', 'link', 'email', 'pitch', 'degree']) f[k].value = p[k] || '';
+    P.for = active.id; P.dirty = false; P.skills = [...(p.skills || [])]; P.manual = [...(p.manualSkills || [])]; P.resumeSkills = [...(p.resumeSkills || [])]; P.resume = p.resume || null; P.linkedin = null;
+    for (const k of ['name', 'headline', 'email', 'pitch', 'degree', 'github', 'linkedin', 'portfolio']) f[k].value = p[k] || '';
+    f.otherLinks.value = (p.otherLinks || []).join('\n'); f.rescan.checked = !!p.rescan;
     f.yearsExp.value = p.yearsExp ?? ''; f.gradYear.value = p.gradYear ?? '';
     f.education.value = (p.education || []).join('\n'); f.experience.value = (p.experience || []).join('\n');
     f.projects.value = (p.projects || []).join('\n'); f.strictFit.checked = p.strictFit !== false;
   }
   $('#cvNote').textContent = P.resume ? `Last read: ${P.resume.file || 'pasted text'}, ${agoLong(Date.parse(P.resume.at))}` : '';
-  renderSkillChips();
+  renderSkillChips(); renderScan();
 }
 function renderSkillChips() {
   const sorted = [...P.skills].sort((a, b) => skillInfo(b).tech - skillInfo(a).tech);
   const tech = sorted.filter(s => skillInfo(s).tech).length;
-  $('#skillChips').innerHTML = sorted.map(s => `<span class="chip ${skillInfo(s).tech ? 'tech' : 'gen'}"><span class="v">${esc(s)}</span><button type="button" data-rm="${esc(s)}" title="Remove">${ic('x')}</button></span>`).join('') || '<span class="muted small">None yet. Import a résumé or type below.</span>';
-  $('#skillCount').textContent = P.skills.length ? `${tech} technical${P.skills.length - tech ? `, ${P.skills.length - tech} general` : ''}` : '';
+  const p = profile(); const str = p.strength || {}; const notes = p.skillNotes || {}; const k = s => skillInfo(s).canonical.toLowerCase();
+  const scanned = Object.keys(str).length > 0;
+  $('#skillChips').innerHTML = sorted.map(s => { const v = str[k(s)]; const lv = scanned && v != null ? lvlOf(v) : '';
+    return `<span class="chip ${skillInfo(s).tech ? 'tech' : 'gen'} ${lv ? `lv-${lv}` : ''}" ${notes[k(s)] ? `title="${esc(`${lv[0]?.toUpperCase() + lv.slice(1)}: ${notes[k(s)]}`)}"` : ''}>${lv ? `<i class="lv" aria-label="${lv}"></i>` : ''}<span class="v">${esc(s)}</span><button type="button" data-rm="${esc(s)}" title="Remove">${ic('x')}</button></span>`; }).join('') || '<span class="muted small">None yet. Import a résumé or type below.</span>';
+  const counts = scanned ? ['strong', 'working', 'familiar'].map(l => [l, P.skills.filter(s => str[k(s)] != null && lvlOf(str[k(s)]) === l).length]).filter(x => x[1]) : [];
+  $('#skillCount').textContent = P.skills.length ? `${tech} technical${P.skills.length - tech ? `, ${P.skills.length - tech} general` : ''}${counts.length ? ` · ${counts.map(([l, n]) => `${n} ${l}`).join(', ')}` : ''}` : '';
   $$('[data-rm]', $('#skillChips')).forEach(b => b.onclick = () => { P.skills = P.skills.filter(s => s !== b.dataset.rm); P.manual = P.manual.filter(s => s !== b.dataset.rm); P.dirty = true; renderSkillChips(); });
 }
 function addSkills(raw, byHand = false) {
@@ -911,7 +938,8 @@ $('#profileForm').addEventListener('input', () => { P.dirty = true; });
 async function saveProfile(msg = 'Saved') {
   const f = $('#profileForm'); const lines = v => v.split('\n').map(s => s.trim()).filter(Boolean);
   if (f.skillAdd.value.trim()) { addSkills(f.skillAdd.value, true); f.skillAdd.value = ''; }
-  const body = { name: f.name.value, headline: f.headline.value, link: f.link.value, email: f.email.value, pitch: f.pitch.value, degree: f.degree.value, yearsExp: f.yearsExp.value, gradYear: f.gradYear.value, education: lines(f.education.value), experience: lines(f.experience.value), projects: lines(f.projects.value), strictFit: f.strictFit.checked, skills: P.skills, manualSkills: P.manual, resume: P.resume };
+  const body = { name: f.name.value, headline: f.headline.value, link: '', email: f.email.value, pitch: f.pitch.value, degree: f.degree.value, yearsExp: f.yearsExp.value, gradYear: f.gradYear.value, education: lines(f.education.value), experience: lines(f.experience.value), projects: lines(f.projects.value), strictFit: f.strictFit.checked, skills: P.skills, manualSkills: P.manual, resumeSkills: P.resumeSkills, resume: P.resume,
+    github: f.github.value.trim(), linkedin: f.linkedin.value.trim(), portfolio: f.portfolio.value.trim(), otherLinks: lines(f.otherLinks.value), rescan: f.rescan.checked, ...(P.linkedin ? { linkedinSkills: P.linkedin.skills, linkedinPdf: P.linkedin.pdf } : {}) };
   await api('/api/settings', { method: 'POST', body: JSON.stringify({ profile: body }) });
   P.dirty = false; $('#profileMsg').textContent = msg; await loadMeta(); renderProfile(); evCache = null; renderList();
 }
@@ -930,7 +958,8 @@ async function importResume(src) {
     renderProfile();
     const fill = (k, v) => { if (v && !f[k].value.trim()) f[k].value = v; };
     fill('name', d.name); fill('headline', d.headline); fill('email', d.email); fill('pitch', d.summary);
-    fill('link', d.links.find(u => /github\.com/i.test(u)) || d.links[0]);
+    { const s = sortLinks(d.links || []); fill('github', s.github); fill('linkedin', s.linkedin); fill('portfolio', s.portfolio);
+      const have = new Set(f.otherLinks.value.split('\n').map(x => x.trim()).filter(Boolean)); for (const u of s.other) have.add(u); f.otherLinks.value = [...have].join('\n'); }
     if (d.education.length) f.education.value = d.education.map(eduLine).join('\n');
     if (d.experience.length) f.experience.value = d.experience.map(x => `${x.title} (${x.from} – ${x.to}${x.internship ? `, ${x.months} month${x.months > 1 ? 's' : ''}` : ''})`).join('\n');
     if (d.projects?.length) f.projects.value = d.projects.map(x => `${x.name}${x.year ? ` (${x.year})` : ''}${x.stack.length ? ` · ${x.stack.join(', ')}` : ''}`).join('\n');
@@ -939,6 +968,7 @@ async function importResume(src) {
     // A new résumé replaces what the last one gave; only skills you typed in yourself carry over.
     P.skills = [...P.manual];
     const added = addSkills(d.skills.map(s => s.name).join('\n'));
+    P.resumeSkills = d.skills.map(s => skillInfo(s.name).canonical);
     P.resume = { file: r.file || '', at: new Date().toISOString(), chars: d.chars }; P.dirty = true;
     const tech = d.skills.filter(s => s.tech).length;
     const found = [`${tech} technical skill${tech === 1 ? '' : 's'}`, d.education.length && `${d.education.length} education entr${d.education.length > 1 ? 'ies' : 'y'}`, d.experience.length && `${d.experience.length} role${d.experience.length > 1 ? 's' : ''} (${d.experience.filter(x => x.internship).length} internship${d.experience.filter(x => x.internship).length === 1 ? '' : 's'}, ${d.yearsExp} years of full-time work)`, d.projects?.length && `${d.projects.length} projects`].filter(Boolean).join(', ');
@@ -947,6 +977,31 @@ async function importResume(src) {
     return true;
   } catch (e) { say(e.message); return false; }
 }
+// LinkedIn's "Save to PDF": adds to the profile (skills, roles, links) instead of replacing what the résumé gave
+async function importLinkedIn(file) {
+  const say = t => { $('#scanMsg').textContent = t; };
+  say('Reading your LinkedIn PDF…');
+  try {
+    const r = await fetch(`/api/resume?name=${encodeURIComponent(file.name)}`, { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: file }).then(async x => { const d = await x.json().catch(() => ({})); if (!x.ok) throw new Error(d.error || 'That file could not be read.'); return d; });
+    const d = r.parsed; const f = $('#profileForm');
+    if (d.source !== 'linkedin') { say('That doesn’t look like the PDF LinkedIn makes. On your LinkedIn profile choose More → Save to PDF, then pick that file. If it is your résumé, use Import your résumé above.'); return; }
+    const fill = (k, v) => { if (v && !f[k].value.trim()) f[k].value = v; };
+    fill('name', d.name); fill('headline', d.headline); fill('email', d.email); fill('pitch', d.summary);
+    const s = sortLinks(d.links || []); fill('linkedin', s.linkedin); fill('github', s.github); fill('portfolio', s.portfolio);
+    const roles = f.experience.value.split('\n').map(x => x.trim()).filter(Boolean); const known = new Set(roles.map(x => x.toLowerCase().slice(0, 24)));
+    let addedRoles = 0; for (const x of d.experience) { const line = `${x.title} (${x.from} – ${x.to}${x.internship ? `, ${x.months} month${x.months > 1 ? 's' : ''}` : ''})`; if (!known.has(line.toLowerCase().slice(0, 24))) { roles.push(line); addedRoles++; } }
+    f.experience.value = roles.join('\n');
+    if (!f.education.value.trim() && d.education.length) f.education.value = d.education.map(eduLine).join('\n');
+    // profiles from before Lookout noted where each skill came from: what is there now came from the résumé (or was typed)
+    if (!P.resumeSkills.length && P.resume) P.resumeSkills = P.skills.filter(s => !P.manual.includes(s));
+    const names = d.skills.map(x => skillInfo(x.name).canonical); const before = P.skills.length; addSkills(names.join('\n'));
+    P.linkedin = { skills: names, pdf: { file: file.name, at: new Date().toISOString() } }; P.dirty = true;
+    await saveProfile('Saved');
+    say(`From LinkedIn: ${names.length} skill${names.length === 1 ? '' : 's'} (${P.skills.length - before} new), ${addedRoles} role${addedRoles === 1 ? '' : 's'} added. Check them over below.`);
+  } catch (e) { say(e.message); }
+}
+$('#liPick').onclick = () => $('#liFile').click();
+$('#liFile').onchange = async e => { const file = e.target.files[0]; e.target.value = ''; if (file) await importLinkedIn(file); };
 $('#cvPick').onclick = () => $('#cvFile').click();
 $('#cvFile').onchange = async e => { const file = e.target.files[0]; e.target.value = ''; if (file) await importResume(file); };
 { const drop = $('#cvDrop'); for (const ev of ['dragenter', 'dragover']) drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); });
@@ -957,6 +1012,71 @@ const openPaste = then => { pasteThen = then || null; $('#cvText').value = ''; $
 $('#cvPaste').onclick = () => openPaste();
 $('#cvCancel').onclick = () => $('#cvDlg').close('cancel');
 $('#cvDlg').addEventListener('close', async () => { if ($('#cvDlg').returnValue !== 'ok') return; const ok = await importResume($('#cvText').value); pasteThen?.(ok); });
+// ── "Scan my links": progress, suggested skills, projects found ───────────────────────────────────────
+function scanProgressText(st) {
+  const pr = st?.progress; if (!pr) return 'Starting…';
+  if (pr.step === 'github') return `Reading GitHub${pr.total > 1 ? ` (${pr.done + 1} of ${pr.total})` : ''}${pr.name ? `: ${pr.name}` : ''}…`;
+  if (pr.step === 'sites') return `Reading ${pr.name || 'your site'}…`;
+  if (pr.step === 'demos') return `Checking a live demo: ${pr.name}…`;
+  return 'Starting…';
+}
+function renderScan() {
+  const p = profile(); const sc = p.scan; const st = S.meta?.scanState; const out = $('#scanOut'); if (!out) return;
+  const running = st?.running && st.profileId === (S.meta.profiles || []).find(x => x.active)?.id;
+  $('#scanBtn').disabled = !!running; $('#scanBtn').textContent = running ? 'Scanning…' : sc ? 'Scan again' : 'Scan my links';
+  if (running) $('#scanMsg').textContent = scanProgressText(st);
+  else if (sc) {
+    const pages = (sc.pages || []).filter(x => x.ok).length;
+    $('#scanMsg').textContent = `Last scanned ${agoLong(Date.parse(sc.at))}: ${[sc.github ? `${sc.github.repos} GitHub repositor${sc.github.repos === 1 ? 'y' : 'ies'}` : '', pages ? `${pages} page${pages > 1 ? 's' : ''}` : ''].filter(Boolean).join(' and ') || 'nothing could be read'}${sc.browser ? ` (pages that needed JavaScript were read with ${sc.browser}, hidden)` : ''}.`;
+  } else $('#scanMsg').textContent = st?.error ? `The last scan failed: ${st.error}` : '';
+  const sug = (p.suggestions || []).filter(s => !P.skills.some(x => skillInfo(x).canonical.toLowerCase() === s.name.toLowerCase()));
+  const found = Object.entries(sc?.foundLinks || {}).filter(([k, u]) => u && !$('#profileForm')[k]?.value.trim());
+  const projects = (p.projectsFound || []);
+  const have = new Set($('#profileForm').projects.value.toLowerCase().split('\n').map(l => l.split(/[(·]/)[0].trim()));
+  out.innerHTML = `
+    ${found.length ? `<div class="scan-sec"><div class="lab">Found while scanning</div>${found.map(([k, u]) => `<div class="found-link"><span>${esc({ portfolio: 'Your site', linkedin: 'LinkedIn', github: 'GitHub' }[k])}: <a href="${esc(u)}" target="_blank" rel="noreferrer">${esc(u.replace(/^https?:\/\//, ''))}</a></span><button type="button" class="btn sm" data-uselink="${esc(k)}" data-url="${esc(u)}">Use it</button></div>`).join('')}</div>` : ''}
+    ${sug.length ? `<div class="scan-sec"><div class="lab">Your work shows these, but your profile doesn’t list them <button type="button" class="link small" id="sugAll">Add all ${sug.length}</button></div>
+      <div class="chipset">${sug.map(s => `<span class="chip sug lv-${s.level}" title="${esc(`${s.level[0].toUpperCase() + s.level.slice(1)}: ${s.why}`)}"><i class="lv"></i><span class="v">${esc(s.name)}</span><button type="button" data-acc="${esc(s.name)}" title="Add to my skills">${ic('plus')}</button><button type="button" data-ign="${esc(s.name)}" title="Not mine, don’t suggest it again">${ic('x')}</button></span>`).join('')}</div>
+      <p class="fine">Hover a skill to see where it was found. Strong means your own code uses it recently; familiar means it shows up once or long ago.</p></div>` : sc ? '<p class="fine">Nothing new to suggest: your profile already lists what your links show.</p>' : ''}
+    ${projects.length ? `<div class="scan-sec"><div class="lab">Projects found</div>${projects.map((x, i) => `<div class="proj"><div><a href="${esc(x.url)}" target="_blank" rel="noreferrer">${esc(x.name)}</a>${x.at ? `<span class="muted small"> · updated ${agoLong(Date.parse(x.at))}</span>` : ''}${x.about ? `<div class="muted small">${esc(x.about)}</div>` : ''}${x.stack.length ? `<div class="chipset">${x.stack.map(s => `<span class="sk">${esc(s)}</span>`).join('')}</div>` : ''}</div>${have.has(x.name.toLowerCase()) ? '<span class="muted small">In your projects</span>' : `<button type="button" class="btn sm ghost" data-proj="${i}">Add to projects</button>`}</div>`).join('')}</div>` : ''}
+    ${(sc?.notes || []).length ? `<ul class="scan-notes">${sc.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}`;
+  const after = async r => { if (r?.profile) { const a = S.meta.profiles.find(x => x.active); S.meta.settings.profile = r.profile; } renderSkillChips(); renderScan(); evCache = null; renderList(); };
+  $$('[data-acc]', out).forEach(b => b.onclick = async () => { const n = b.dataset.acc; addSkills(n); await after(await api('/api/profile/skills', { method: 'POST', body: JSON.stringify({ accept: [n] }) })); });
+  $$('[data-ign]', out).forEach(b => b.onclick = async () => after(await api('/api/profile/skills', { method: 'POST', body: JSON.stringify({ ignore: [b.dataset.ign] }) })));
+  $('#sugAll')?.addEventListener('click', async () => { const names = sug.map(s => s.name); addSkills(names.join('\n')); await after(await api('/api/profile/skills', { method: 'POST', body: JSON.stringify({ accept: names }) })); });
+  $$('[data-uselink]', out).forEach(b => b.onclick = () => { $('#profileForm')[b.dataset.uselink].value = b.dataset.url; P.dirty = true; saveProfile('Saved. Scan again to read it.').catch(e => { $('#profileMsg').textContent = e.message; }); });
+  $$('[data-proj]', out).forEach(b => b.onclick = () => { const x = projects[+b.dataset.proj]; const f = $('#profileForm'); f.projects.value = [f.projects.value.trim(), `${x.name}${x.at ? ` (${new Date(x.at).getFullYear()})` : ''}${x.stack.length ? ` · ${x.stack.join(', ')}` : ''}`].filter(Boolean).join('\n'); P.dirty = true; renderScan(); $('#profileMsg').textContent = 'Added to Projects. Save to keep it.'; });
+}
+$('#scanBtn').onclick = async () => {
+  try {
+    if (P.dirty || ['github', 'portfolio', 'linkedin', 'otherLinks'].some(k => $('#profileForm')[k].value.trim() !== (Array.isArray(profile()[k]) ? profile()[k].join('\n') : profile()[k] || ''))) await saveProfile('Saved');
+    await api('/api/profile/scan', { method: 'POST', body: '{}' });
+    S.meta.scanState = { running: true, profileId: (S.meta.profiles || []).find(x => x.active)?.id, progress: null }; renderScan();
+  } catch (e) { $('#scanMsg').textContent = e.message; }
+};
+function renderReadCard() {
+  api('/api/browsers').then(r => {
+    const sel = $('#browserSel'); const usable = r.browsers.filter(b => b.usable);
+    sel.innerHTML = `<option value="auto">Automatic${r.choice === 'auto' && r.using ? ` (${esc(r.using.name)})` : ''}</option>${usable.map(b => `<option value="${esc(b.id)}">${esc(b.name)}${b.isDefault ? ' (your default)' : ''}${b.auto ? '' : ' (only if picked)'}</option>`).join('')}<option value="none">Don’t use a browser</option>`;
+    sel.value = [...sel.options].some(o => o.value === r.choice) ? r.choice : 'auto';
+    const ff = r.browsers.find(b => b.engine === 'firefox');
+    $('#readStatus').textContent = r.using ? `Using ${r.using.name}` : 'No browser found';
+    $('#browserNote').textContent = !usable.length ? 'No Chrome, Edge, Brave, Vivaldi, Chromium or Opera was found, so JavaScript-heavy pages are read as plain downloads. GitHub and most sites still work.'
+      : `Found ${usable.map(b => b.name).join(', ')}.${ff ? ' Firefox was found too, but Lookout can’t drive it yet.' : ''}`;
+    $('#readForm').githubToken.value = S.meta.settings.hasGithubToken ? '••••' : '';
+  }).catch(() => { });
+}
+$('#readForm').onsubmit = async e => { e.preventDefault(); const f = e.target; await api('/api/settings', { method: 'POST', body: JSON.stringify({ browser: f.browser.value, githubToken: f.githubToken.value }) }); await loadMeta(); renderReadCard(); $('#readMsg').textContent = 'Saved'; };
+function renderLearn() {
+  const on = S.meta?.learn !== false; $('#learnToggle').checked = on;
+  if (!on) { $('#learnMsg').textContent = 'Off: Best match ranks by freshness and skill fit only.'; return; }
+  model(); const m = learned || { pos: 0, neg: 0 };
+  if (!m.ready) { $('#learnMsg').textContent = `It starts once you have saved or applied to 5 roles and acted on 15 in all (so far ${m.pos} saved or applied, ${m.neg} hidden).`; return; }
+  const ex = explain(m); const list = a => a.length > 1 ? `${a.slice(0, -1).join(', ')} and ${a.at(-1)}` : a[0] || '';
+  $('#learnMsg').textContent = `Learning from ${m.pos} role${m.pos === 1 ? '' : 's'} you went for and ${m.neg} you passed on.${ex.toward.length ? ` It leans toward ${list(ex.toward)}.` : ''}${ex.away.length ? ` Away from ${list(ex.away)}.` : ''}`;
+}
+$('#learnToggle').onchange = async e => { await api('/api/settings', { method: 'POST', body: JSON.stringify({ learn: e.target.checked }) }); await loadMeta(); learnedSig = ''; renderLearn(); evCache = null; renderList(); };
+$('#browserAgain').onclick = async () => { $('#readMsg').textContent = 'Looking…'; await api('/api/browsers?again=1'); renderReadCard(); $('#readMsg').textContent = ''; };
 $('#rankNow').onclick = () => { S.sort = 'best'; ls.set('lk2.sort', 'best'); renderSort(); location.hash = '#jobs'; renderList(); };
 
 // Profiles: each has its own résumé, skills, saved views, pipeline and blocked companies.
@@ -1150,6 +1270,12 @@ function connect() {
   });
   es.addEventListener('status', e => { const st = JSON.parse(e.data); const s = S.meta?.sources.find(x => x.id === st.id); if (s) Object.assign(s, st); renderEngine(); });
   es.addEventListener('funding', () => { if (S.view === 'signals') renderSignals(); });
+  es.addEventListener('profile', async () => { await loadMeta(); if (S.view === 'settings' && !P.dirty) renderProfile(); evCache = null; renderList(); }); // the extension added skills
+  es.addEventListener('scan', async e => {
+    const st = JSON.parse(e.data); if (!S.meta) return; const was = S.meta.scanState?.running; S.meta.scanState = st;
+    if (was && !st.running) { await loadMeta(); if (S.view === 'settings') renderProfile(); evCache = null; renderList(); }
+    else if (S.view === 'settings') renderScan();
+  });
 }
 async function loadMeta() { S.meta = await api('/api/meta'); renderNav(); renderWho(); syncMentions().then(ok => ok && S.jobs.length && refreshJobs()); }
 
