@@ -279,6 +279,7 @@ data/db.json           your data (not committed)
 npm start                     # run the scanner + UI on http://127.0.0.1:4173
 .\build-desktop.ps1           # rebuild Lookout.exe (compiles desktop\Lookout.cs with the .NET Framework compiler)
 .\desktop\make-icon.ps1       # regenerate desktop\lookout.ico from the logo design
+.\release.ps1                 # build dist\Lookout-windows.zip; add -Thumbprint or -PfxPath to code-sign Lookout.exe
 ```
 
 - **Environment variables:** `PORT` (default 4173), `HOST` (default `127.0.0.1`; set `0.0.0.0` to reach it from your phone on the same Wi-Fi).

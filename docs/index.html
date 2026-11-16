@@ -55,41 +55,17 @@ h1 em{font-style:normal;color:var(--live)}
 .sub{font-size:clamp(1.05rem,1.9vw,1.28rem);color:var(--text2);max-width:60ch;margin:24px auto 0;position:relative}
 .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:34px;position:relative}
 .fine{color:var(--text3);font-size:.88em;margin-top:16px;position:relative}
-/* app mock */
-.stage{margin:64px auto 0;position:relative;max-width:1040px}
-.app{background:var(--panel);border-radius:18px;box-shadow:var(--shadow);overflow:hidden;text-align:left;display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr)}
-.app-bar{grid-column:1/-1;display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line);color:var(--text3);font-size:.84em}
-.app-bar i{width:11px;height:11px;border-radius:50%;background:var(--line2)}
-.app-bar span{margin-left:10px}
-.list{border-right:1px solid var(--line);padding:8px}
-.row{display:grid;grid-template-columns:38px 1fr auto;gap:12px;align-items:center;padding:12px;border-radius:12px}
-.row.sel{background:var(--raised)}
-.logo{width:38px;height:38px;border-radius:10px;background:var(--raised);display:grid;place-items:center;font-weight:600;color:var(--text2);font-size:.9em}
-.row b{display:block;font-weight:600;font-size:.96em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.row small{color:var(--text3);font-size:.86em}
-.t{font:500 .82em var(--mono);color:var(--text3);white-space:nowrap}
-.t.live{color:var(--live)}
-.tags{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
-.tag{font-size:.76em;padding:2px 9px;border-radius:99px;background:var(--raised);color:var(--text2)}
-.row.sel .tag{background:var(--line)}
-.detail{padding:26px 28px}
-.detail h3{margin:14px 0 0;font-size:1.45em;letter-spacing:-.02em;line-height:1.2}
-.detail .co{display:flex;gap:12px;align-items:center;color:var(--text2);font-size:.94em}
-.acts{display:flex;gap:8px;margin:18px 0 22px}
-.acts span{height:36px;padding:0 16px;border-radius:10px;display:inline-flex;align-items:center;font-weight:600;font-size:.9em;background:var(--raised)}
-.acts span:first-child{background:var(--text);color:var(--bg)}
-.lab{display:flex;justify-content:space-between;font-size:.86em;color:var(--text3);margin:0 0 9px}
-.lab b{color:var(--live);font-weight:500}
-.chips{display:flex;flex-wrap:wrap;gap:6px}
-.sk{font-size:.84em;padding:3px 11px;border-radius:99px;box-shadow:inset 0 0 0 1px var(--line2);color:var(--text2)}
-.sk.hit{background:var(--live-dim);color:var(--live);box-shadow:none}
-.note{margin-top:20px;padding:10px 13px;border-radius:10px;background:var(--warn-dim);font-size:.86em;color:var(--text2)}
-.note b{color:var(--text)}
-.phone{position:absolute;right:-18px;bottom:-34px;width:300px;background:var(--raised);border-radius:18px;padding:14px 16px;box-shadow:var(--shadow);text-align:left;font-size:.88em}
-.phone .h{display:flex;gap:8px;align-items:center;color:var(--text3);font-size:.86em;margin-bottom:6px}
-.phone .h img{width:16px;height:16px}
-.phone b{display:block}
-.phone p{margin:3px 0 0;color:var(--text2)}
+/* screenshots */
+.stage{margin:64px auto 0;max-width:1120px}
+.shot{border-radius:16px;overflow:hidden;background:var(--panel);box-shadow:var(--shadow);margin:0}
+.shot img{display:block;width:100%;height:auto}
+.shot-bar{display:flex;align-items:center;gap:7px;padding:11px 14px;border-bottom:1px solid var(--line);color:var(--text3);font-size:.8em}
+.shot-bar i{width:10px;height:10px;border-radius:50%;background:var(--line2)}
+.shot-bar span{margin-left:8px}
+figcaption{color:var(--text3);font-size:.88em;margin-top:18px}
+.shot.side{max-width:560px;justify-self:center;width:100%}
+.shot.side.tall{max-width:330px}
+.shot.wide{margin-top:44px}
 /* sections */
 section{padding:104px 0 0}
 .eyebrow{font:500 .8em var(--mono);color:var(--live);letter-spacing:.08em;text-transform:uppercase}
@@ -120,12 +96,6 @@ h2{font-size:clamp(1.9rem,4vw,2.9rem);letter-spacing:-.03em;line-height:1.1;marg
 .ticks li{display:grid;grid-template-columns:22px 1fr;gap:12px;color:var(--text2)}
 .ticks li::before{content:"";width:18px;height:18px;margin-top:4px;border-radius:50%;background:var(--live-dim) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2388b800' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 12.5l4 4 8-9'/%3E%3C/svg%3E") center/12px no-repeat}
 .ticks b{color:var(--text);font-weight:600}
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:26px}
-.panel .lab{margin-top:18px}
-.panel .lab:first-child{margin-top:0}
-.drop{border:1px dashed var(--line2);border-radius:12px;padding:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:.92em}
-.drop span{color:var(--text3);font-size:.9em;display:block}
-.drop em{font-style:normal;padding:7px 14px;border-radius:9px;background:var(--raised);font-weight:600;white-space:nowrap}
 details{border-bottom:1px solid var(--line);padding:18px 0}
 summary{cursor:pointer;font-weight:600;list-style:none;display:flex;justify-content:space-between;gap:16px}
 summary::after{content:"+";color:var(--text3);font-weight:400}
@@ -138,7 +108,7 @@ footer{padding:44px 0 56px;color:var(--text3);font-size:.9em;display:flex;justif
 code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radius:6px}
 @media (max-width:900px){
   .app{grid-template-columns:1fr}.list{border-right:0;border-bottom:1px solid var(--line)}.phone{position:static;width:auto;margin:16px 0 0}
-  .grid,.steps,.facts,.split{grid-template-columns:1fr}.card.wide{grid-column:auto}nav .links a:not(.btn){display:none}
+  .grid,.steps,.facts,.split{grid-template-columns:1fr}.card.wide{grid-column:auto}nav .links a:not(.btn){display:none}.shot.side,.shot.side.tall{max-width:100%}
   section{padding-top:76px}.hero{padding-top:56px}
 }
 @media (prefers-reduced-motion:reduce){.dot{animation:none}html{scroll-behavior:auto}.btn{transition:none}}
@@ -149,7 +119,7 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
 <nav><div class="wrap">
   <a class="brand" href="#top"><img src="logo.svg" alt="">Lookout</a>
   <div class="links">
-    <a href="#early">Why early</a><a href="#features">Features</a><a href="#resume">Résumé match</a><a href="#privacy">Privacy</a><a href="#faq">FAQ</a>
+    <a href="#early">Why early</a><a href="#features">Features</a><a href="#filters">Filters</a><a href="#resume">Résumé match</a><a href="#privacy">Privacy</a><a href="#faq">FAQ</a>
     <a class="btn sm primary" href="https://github.com/FalconFuryX77/lookout/releases/latest">Download</a>
   </div>
 </div></nav>
@@ -165,31 +135,16 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
   </div>
   <p class="fine">Free. Windows 10 or 11. Needs Node.js 20 or newer. No account, no sign-up.</p>
 
-  <div class="stage">
-    <div class="app" aria-label="A picture of the Lookout app showing a list of new roles and one role's details">
-      <div class="app-bar"><i></i><i></i><i></i><span>Lookout · India software internships · 76 roles</span></div>
-      <div class="list">
-        <div class="row sel"><div class="logo">N</div><div><b>Software Engineer Intern, Backend</b><small>Northwind Robotics · Bengaluru</small><div class="tags"><span class="tag">₹60k / month</span><span class="tag">Series A, last week</span></div></div><span class="t live">● 6m</span></div>
-        <div class="row"><div class="logo">H</div><div><b>ML Research Intern</b><small>Halcyon Labs · Remote</small><div class="tags"><span class="tag">0–1 yrs</span><span class="tag">Remote</span></div></div><span class="t live">● 19m</span></div>
-        <div class="row"><div class="logo">T</div><div><b>Full-Stack Intern (Summer)</b><small>Tessera · Mumbai</small><div class="tags"><span class="tag">YC</span><span class="tag">Has founder email</span></div></div><span class="t live">● 41m</span></div>
-        <div class="row"><div class="logo">A</div><div><b>Flutter Developer Intern</b><small>Arcway Health · Pune</small></div><span class="t">2h</span></div>
-        <div class="row"><div class="logo">K</div><div><b>Junior Platform Engineer</b><small>Kestrel Data · Hyderabad</small></div><span class="t">3h</span></div>
-      </div>
-      <div class="detail">
-        <div class="co"><div class="logo">N</div><div>Northwind Robotics<br><small style="color:var(--text3)">Bengaluru · posted 6 minutes ago</small></div></div>
-        <h3>Software Engineer Intern, Backend</h3>
-        <div class="acts"><span>Apply ↗</span><span>Save</span><span>Email founder</span></div>
-        <p class="lab"><span>Skills</span><b>You have 6 of 8</b></p>
-        <div class="chips"><span class="sk hit">Python</span><span class="sk hit">FastAPI</span><span class="sk hit">PostgreSQL</span><span class="sk hit">Redis</span><span class="sk hit">Docker</span><span class="sk hit">Git</span><span class="sk">Kubernetes</span><span class="sk">Go</span></div>
-        <p class="note">Apply opens <b>the company's own listing</b>, not a job board's copy of it.</p>
-      </div>
+  <figure class="stage">
+    <div class="shot">
+      <div class="shot-bar"><i></i><i></i><i></i><span>Lookout</span></div>
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="img/jobs-light.webp">
+        <img src="img/jobs-dark.webp" width="2880" height="1800" alt="The Lookout window. A saved view called Fresh software roles, 0 to 2 years, lists internships posted 9 to 59 minutes ago at PayPal, Seagate, Shopee and others. The open role shows its posting time, pay, work mode, requirements, and which of its skills the profile already has.">
+      </picture>
     </div>
-    <div class="phone" aria-label="A picture of a phone notification">
-      <div class="h"><img src="logo.svg" alt="">Lookout · now</div>
-      <b>Northwind Robotics: Software Engineer Intern</b>
-      <p>Posted 6 min ago · Bengaluru<br>Skills: Python, FastAPI, PostgreSQL</p>
-    </div>
-  </div>
+    <figcaption>The real app, a few minutes after a fresh install. Every role in this list went up within the last hour.</figcaption>
+  </figure>
 </div></header>
 
 <section id="early"><div class="wrap">
@@ -246,6 +201,37 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
   </div>
 </div></section>
 
+<section id="filters"><div class="wrap split">
+  <figure class="shot side tall">
+    <picture>
+      <source media="(prefers-color-scheme: light)" srcset="img/filters-light.webp">
+      <img src="img/filters-dark.webp" width="880" height="1800" loading="lazy" alt="The filter panel. Under Skills, My skills has ticked every language on the profile; the list is grouped with technical skills first and shows how many roles ask for each.">
+    </picture>
+  </figure>
+  <div>
+    <span class="eyebrow">Filters</span>
+    <h2>Say exactly what you're after. Once.</h2>
+    <p class="lede">Every filter shows how many roles it would leave before you click it. Save a combination as a view, and the same rules decide which roles reach your phone.</p>
+    <ul class="ticks">
+      <li><span><b>My skills, in one click.</b> Tick everything on your profile and see only roles that use it.</span></li>
+      <li><span><b>Experience that means it.</b> Internship, new grad, years asked for. Roles that want more than you have stay out of the way.</span></li>
+      <li><span><b>Visa, remote, country, pay, degree, internship term</b>, funding stage, and whether there's an email to write to.</span></li>
+    </ul>
+  </div>
+</div></section>
+
+<section id="sources"><div class="wrap">
+  <span class="eyebrow">Coverage</span>
+  <h2>The longer it runs, the more it sees.</h2>
+  <p class="lede">Within minutes of a fresh install, Lookout was watching 1,854 company career boards it found on its own, and checking the busiest ones every couple of minutes.</p>
+  <figure class="shot wide">
+    <picture>
+      <source media="(prefers-color-scheme: light)" srcset="img/sources-light.webp">
+      <img src="img/sources-dark.webp" width="2880" height="1800" loading="lazy" alt="The Sources page: 1,854 company boards, a bar showing how often they are checked, where they were found, and a list of boards discovered in the last few minutes.">
+    </picture>
+  </figure>
+</div></section>
+
 <section id="resume"><div class="wrap split">
   <div>
     <span class="eyebrow">Matched to you</span>
@@ -258,15 +244,12 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
       <li><span><b>Several profiles.</b> One per person sharing the computer, or one per kind of role you're going for, each with its own views and pipeline.</span></li>
     </ul>
   </div>
-  <div class="panel">
-    <div class="drop"><div><b>Import your résumé</b><span>Read on this computer. Never uploaded.</span></div><em>Choose file</em></div>
-    <p class="lab"><span>Skills found</span><b>19 technical</b></p>
-    <div class="chips"><span class="sk hit">Python</span><span class="sk hit">C++</span><span class="sk hit">SQL</span><span class="sk hit">Flutter</span><span class="sk hit">FastAPI</span><span class="sk hit">PostgreSQL</span><span class="sk hit">Docker</span><span class="sk hit">WebRTC</span><span class="sk hit">PyTorch</span><span class="sk hit">Git</span><span class="sk">Communication</span></div>
-    <p class="lab"><span>Experience</span></p>
-    <div style="color:var(--text2);font-size:.94em">Software Engineering Intern, 2 months<br>B.Tech, graduating 2027</div>
-    <p class="lab"><span>Projects</span></p>
-    <div style="color:var(--text2);font-size:.94em">Remote assistance app · Flutter, FastAPI, WebRTC<br>Encrypted vault · Kotlin, AES-256-GCM</div>
-  </div>
+  <figure class="shot side">
+    <picture>
+      <source media="(prefers-color-scheme: light)" srcset="img/profile-light.webp">
+      <img src="img/profile-dark.webp" width="1488" height="1501" loading="lazy" alt="Settings, Profile: a résumé has been imported and 21 technical skills were picked out of it, from Python and Go to Kubernetes and QEMU, along with years of experience, degree and graduation year.">
+    </picture>
+  </figure>
 </div></section>
 
 <section><div class="wrap">
@@ -312,7 +295,7 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
     <div class="cta"><a class="btn primary" href="https://github.com/FalconFuryX77/lookout/releases/latest">Download for Windows</a><a class="btn" href="https://github.com/FalconFuryX77/lookout#readme">Read the guide</a></div>
     <p class="fine">Free. No account. Your data stays on your computer.</p>
   </div>
-  <footer><span>Lookout</span><span>The company names and roles pictured above are made-up examples.</span></footer>
+  <footer><span>Lookout</span><span>Screenshots are of the real app with a made-up sample profile, taken on 16 November 2026. The roles in them were real public listings that day.</span></footer>
 </div>
 
 </body>

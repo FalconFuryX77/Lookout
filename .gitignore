@@ -9,3 +9,4 @@ data.json
 data.legacy.json
 *.exe
 *.dll
+dist/
