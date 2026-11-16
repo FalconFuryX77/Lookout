@@ -115,7 +115,14 @@ details p{color:var(--text2);margin:10px 0 0;max-width:70ch}
 .faq{max-width:780px;margin-top:30px}
 .end{margin:110px 0 0;padding:72px 24px;text-align:center;border-radius:24px;background:radial-gradient(520px 240px at 50% 0,var(--live-dim),transparent 70%),var(--panel);border:1px solid var(--line)}
 .end h2{margin:0 auto;max-width:18ch}
-footer{padding:44px 0 56px;color:var(--text3);font-size:.9em;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+footer{padding:44px 0 56px;color:var(--text3);font-size:.9em}
+footer .made{display:flex;align-items:center;justify-content:space-between;gap:14px 20px;flex-wrap:wrap;padding-bottom:22px;margin-bottom:22px;border-bottom:1px solid var(--line)}
+footer .made b{color:var(--text);font-weight:600}
+footer .handles{display:flex;gap:10px;flex-wrap:wrap}
+footer .handle{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:10px;border:1px solid var(--line2);background:var(--panel);color:var(--text2);text-decoration:none;font-weight:500;transition:color .12s,border-color .12s}
+footer .handle:hover,footer .handle:focus-visible{color:var(--text);border-color:var(--text3)}
+footer .handle svg{width:16px;height:16px;fill:currentColor;flex-shrink:0}
+footer .notes{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radius:6px}
 @media (max-width:900px){
   .app{grid-template-columns:1fr}.list{border-right:0;border-bottom:1px solid var(--line)}.phone{position:static;width:auto;margin:16px 0 0}
@@ -373,7 +380,16 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
     <div class="cta"><a class="btn primary" href="https://github.com/FalconFuryX77/lookout/releases/latest">Download for Windows</a><a class="btn" href="https://github.com/FalconFuryX77/lookout#readme">Read the guide</a></div>
     <p class="fine">Free. No account. Your data stays on your computer.</p>
   </div>
-  <footer><span>Lookout · open source under <a href="https://github.com/FalconFuryX77/lookout/blob/main/LICENSE">AGPL-3.0</a></span><span>Screenshots are of the real app with a made-up sample profile, taken on 16 November 2026. The roles in them were real public listings that day.</span></footer>
+  <footer>
+    <div class="made">
+      <span>Made by <b>FalconFuryX77</b></span>
+      <div class="handles">
+        <a class="handle" href="https://github.com/FalconFuryX77" target="_blank" rel="noopener" aria-label="FalconFuryX77 on GitHub"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>FalconFuryX77</a>
+        <a class="handle" href="https://x.com/PraneelPaliwal" target="_blank" rel="noopener" aria-label="@PraneelPaliwal on X"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/></svg>@PraneelPaliwal</a>
+      </div>
+    </div>
+    <div class="notes"><span>Lookout · open source under <a href="https://github.com/FalconFuryX77/lookout/blob/main/LICENSE">AGPL-3.0</a></span><span>Screenshots are of the real app with a made-up sample profile, taken on 16 November 2026. The roles in them were real public listings that day.</span></div>
+  </footer>
 </div>
 
 </body>
