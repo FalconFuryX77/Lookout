@@ -1,4 +1,7 @@
 import { skillInfo, SKILL_GROUPS } from './skills.mjs';
+import { linkRank } from './links.mjs';
+const linkKind = (u, co) => ['copy', 'site', 'near', 'direct'][Math.max(0, linkRank(u, co))];
+const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } };
 import { matches, evaluate, freshness, score, skillMatch, fit, effectiveTime, normalizeFilters, normCo, EMPTY_FILTERS, FIELDS, STAGES, stagesOf, VISA, WORK_MODES, DEGREES, FUND_STAGES, AGE_MS } from './filters.mjs';
 
 // ───────────────────────────────────────────── utilities
@@ -347,8 +350,10 @@ function renderDetail(j) {
     <section class="sec"><h4>Contact<button class="icon-btn sm" id="cRe" title="Check again">${ic('refresh')}</button></h4><div id="contacts"><span class="spin"></span></div></section>
     <section class="sec"><h4>Status</h4><div class="status-row">${STATUSES.map(([v, l]) => `<button data-st="${v}" class="${tr.status === v ? 'on' : ''}">${l}</button>`).join('')}</div>
       <textarea class="note" id="note" rows="2" placeholder="Notes">${esc(tr.note || '')}</textarea></section>
-    <details class="fold"><summary>Seen on ${j.sources.length} source${j.sources.length > 1 ? 's' : ''}</summary><div class="srcs">${j.sources.map(s => `<a href="${esc(s.url)}" target="_blank" rel="noreferrer">${esc(srcName(s.source))}<span>${s.postedAt ? `posted ${agoLong(Date.parse(s.postedAt))}` : `seen ${agoLong(Date.parse(s.seenAt))}`}</span></a>`).join('')}</div></details>
-    ${j.description ? `<details class="fold"><summary>Full posting</summary><div class="desc">${esc(j.description)}</div></details>` : ''}
+    <section class="sec srcsec"><h4>Seen on ${j.sources.length} source${j.sources.length > 1 ? 's' : ''}</h4>
+      <p class="apply-note ${linkKind(apply, j.company)}">${{ direct: 'Apply opens the employer’s own listing.', near: 'Apply opens a listing one click from the employer.', site: 'Apply opens the link the source gave.', copy: 'Apply opens a job board’s copy. The employer’s own listing was not found.' }[linkKind(apply, j.company)]}</p>
+      <div class="srcs">${j.sources.map(s => `<a href="${esc(s.url)}" target="_blank" rel="noreferrer"><b>${esc(srcName(s.source))}</b><span>${s.postedAt ? `posted ${agoLong(Date.parse(s.postedAt))}` : `seen ${agoLong(Date.parse(s.seenAt))}`}</span></a>`).join('')}${(j.urls || []).filter(u => !j.sources.some(s => s.url === u)).slice(0, 4).map(u => `<a href="${esc(u)}" target="_blank" rel="noreferrer"><b>${esc(hostOf(u))}</b><span>${{ direct: 'employer', near: 'one click away', site: 'link', copy: 'board copy' }[linkKind(u, j.company)]}${u === apply ? ' · Apply' : ''}</span></a>`).join('')}</div></section>
+    ${j.description ? `<section class="sec"><h4>Full posting</h4><div class="desc">${esc(j.description)}</div></section>` : ''}
   </div>`;
   $('#dClose').onclick = () => { S.sel = null; $$('.row.sel', list).forEach(r => r.classList.remove('sel')); detailEmpty(); };
   $('#reqMore')?.addEventListener('click', e => { const c = $('#reqs').classList.toggle('clamped'); e.target.textContent = c ? `Show all ${reqs.length}` : 'Show fewer'; });
@@ -1055,7 +1060,7 @@ async function init() {
   refreshJobs(); route(); renderEngine(); connect(); maybeWelcome();
   api('/api/signals').then(r => $('#nSignals').textContent = fmt(r.companies.length)).catch(() => { });
   api('/api/discovery').then(d => $('#nSources').textContent = fmt(d.boards)).catch(() => { });
-  setInterval(async () => { await loadMeta(); renderViews(); if (S.view === 'sources') renderSources(); }, 30000);
+  setInterval(async () => { try { await loadMeta(); renderViews(); if (S.view === 'sources') renderSources(); } catch { /* scanner unreachable; the watchdog reconnects */ } }, 30000);
   setInterval(() => { if (S.view === 'jobs') $$('.row .t-time', list).forEach(el => { const j = S.jobs.find(x => x.id === el.closest('.row').dataset.id); if (j) el.textContent = when(j); }); }, 60000);
 }
 init().catch(e => { $('#list').innerHTML = `<div class="empty"><div class="empty-in"><h3>Can’t reach the scanner</h3><p>${esc(e.message)}. Start it with <code>npm start</code>.</p></div></div>`; });

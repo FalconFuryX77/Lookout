@@ -504,3 +504,11 @@ dialog label.check input{width:auto;accent-color:var(--live)}
 .mid i{width:15px;height:15px;flex-shrink:0;margin-top:2px;color:var(--warn)}
 .mid b{color:var(--text);font-weight:600}
 .mid.ok{background:var(--good-dim)} .mid.ok i{color:var(--good)}
+/* sources and full posting, always open */
+.srcsec{margin-top:8px;border-top:1px solid var(--line)}
+.srcs a b{font-weight:500;color:var(--text)}
+.apply-note{margin:0 0 6px;font-size:.88em;color:var(--text2);display:flex;align-items:center;gap:8px}
+.apply-note::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--text3);flex-shrink:0}
+.apply-note.direct::before{background:var(--good)}
+.apply-note.near::before{background:var(--live)}
+.apply-note.copy::before{background:var(--warn)}

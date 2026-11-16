@@ -84,7 +84,7 @@ export function mergeInto(job, p) {
   if ((p.description || '').length > (job.description || '').length) { job.description = p.description; job.requirements = p.requirements; }
   if (!job.applyUrl && p.applyUrl) job.applyUrl = p.applyUrl;
   // Apply opens the most direct link on file: the employer's own listing beats any board's copy of it.
-  { const best = bestLink(job.urls); if (best && linkRank(best) > linkRank(job.applyUrl || job.url)) job.applyUrl = best; }
+  { const best = bestLink(job.urls, job.company); if (best && linkRank(best, job.company) > linkRank(job.applyUrl || job.url, job.company)) job.applyUrl = best; }
   if (!job.levelHint && p.levelHint) job.levelHint = p.levelHint;
   if (p.type === 'Internship' && job.type !== 'Internship' && job.level !== 'Senior' && job.level !== 'Senior+') { job.type = 'Internship'; job.level = 'Intern'; }
   if (!job.salary && p.salary) job.salary = p.salary;

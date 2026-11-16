@@ -3,25 +3,26 @@
 // (1) rank links by how direct they are, (2) spot a posting that is really another company's role,
 // and (3) decide whether two records are the same role.
 import { normCompany, normTitle } from './dedupe.mjs';
+import { linkRank, bestLink, isShortLink } from '../public/links.mjs';
+export { linkRank, bestLink, isShortLink };
 
 const host = u => { try { return new URL(u).hostname.replace(/^www\./, '').toLowerCase(); } catch { return ''; } };
-// The employer's own applicant system: applying here goes straight to the hiring team.
-const DIRECT = /(^|\.)(greenhouse\.io|lever\.co|ashbyhq\.com|workable\.com|smartrecruiters\.com|recruitee\.com|myworkdayjobs\.com|icims\.com|rippling\.com|bamboohr\.com|teamtailor\.com|personio\.(?:com|de)|breezy\.hr|jobvite\.com|eightfold\.ai|oraclecloud\.com|successfactors\.(?:com|eu)|taleo\.net|pinpointhq\.com|gem\.com|dover\.com|notion\.site|keka\.com|darwinbox\.in|zohorecruit\.(?:com|in)|freshteam\.com)$/;
-// Listings that are one click from the employer and ask for nothing themselves.
-const NEAR = /(^|\.)(ycombinator\.com|workatastartup\.com|news\.ycombinator\.com)$/;
-// Boards and link shorteners: a copy of the listing, not the listing.
-const AGGREGATOR = /(^|\.)(linkedin\.com|himalayas\.app|jobicy\.com|arbeitnow\.[a-z.]+|remoteok\.com|weworkremotely\.com|startup\.jobs|indeed\.com|glassdoor\.[a-z.]+|naukri\.com|wellfound\.com|simplify\.jobs|vansh\.nyc|bit\.ly|lnkd\.in|jobs\.gem\.com|ziprecruiter\.com|monster\.com|foundit\.in|internshala\.com|unstop\.com|cutshort\.io|instahyre\.com|hirist\.tech|jooble\.org|talent\.com|adzuna\.[a-z.]+|remotive\.com|workingnomads\.com|dailyremote\.com|builtin\.com|otta\.com|welcometothejungle\.com)$/;
-/** 3 = the employer's own listing, 2 = one honest click away, 1 = unknown site, 0 = a board's copy. */
-export function linkRank(url) {
-  const h = host(url); if (!h) return -1;
-  if (DIRECT.test(h)) return 3;
-  if (/^(careers?|jobs|apply|work|join|hiring)\./.test(h) && !AGGREGATOR.test(h)) return 3;
-  if (NEAR.test(h)) return 2;
-  if (AGGREGATOR.test(h)) return 0;
-  return 1;
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36';
+/** Follow a short link's redirects (without loading the pages) and return where it ends up, or null. */
+export async function followRedirects(url, max = 6) {
+  let cur = url;
+  for (let i = 0; i < max; i++) {
+    let r;
+    try { r = await fetch(cur, { method: 'HEAD', redirect: 'manual', headers: { 'user-agent': UA }, signal: AbortSignal.timeout(10000) }); }
+    catch { return i ? cur : null; }
+    if (r.status === 405 || r.status === 403 || r.status === 501) { try { r = await fetch(cur, { redirect: 'manual', headers: { 'user-agent': UA }, signal: AbortSignal.timeout(10000) }); r.body?.cancel?.(); } catch { return i ? cur : null; } }
+    const loc = r.status >= 300 && r.status < 400 && r.headers.get('location');
+    if (!loc) return i ? cur : null;            // a short link that does not redirect has nothing to tell us
+    cur = new URL(loc, cur).href;
+    if (!isShortLink(cur)) return cur;
+  }
+  return isShortLink(cur) ? null : cur;
 }
-/** The most direct of a record's links; ties keep the earlier one. */
-export function bestLink(urls = []) { let best = '', r = -2; for (const u of urls) { const k = linkRank(u); if (u && k > r) { best = u; r = k; } } return best; }
 
 /** Companies whose business is re-posting other companies' roles. */
 export const REPOSTER = /\b(joblet|jobs4panindia|jobs ?4 ?pan ?india|talentgigs|crossing hurdles|targetjobs|jobgether|remotehunter|lensa|talentify|jobot|cybercoders|recruiting from scratch|hiretalent|hire ?digital|wiraa|uplers|supersourcing|recruitcrm|peoplegrove|jobright|hireclout|canvas talent|energy jobline|efinancialcareers|get ?it ?recruit|trabajo|jobleads|whatjobs|talent ?pop|sundayy|scaleup talent|sourcebae|hyring|hirebee|talentmate|expertia)\b/i;

@@ -216,7 +216,9 @@ Title normalisation collapses "SWE"/"Developer"/"Engineering" synonyms and ignor
 
 A role often reaches you through a chain: a job board links to a recruiter's page, which links to the employer's own listing, and every hop asks for your details. Lookout tries to cut the chain:
 
-- **Apply opens the most direct link on file.** When several sources report the same role, the employer's own applicant system (Greenhouse, Lever, Ashby, Workday and so on) wins over any board's copy.
+- **Apply opens the most direct link on file.** When several sources report the same role, the employer's own applicant system (Greenhouse, Lever, Ashby, Workday and so on) or a careers site named after the company wins over any board's copy.
+- **Short links are followed.** Community lists often hand out short links (`go.vansh.nyc/…`, `bit.ly/…`). Lookout follows each one once, keeps the employer's address it lands on, and merges the role with any copy of it already on file.
+- **You see it before you click.** Each role's "Seen on" section says whether Apply opens the employer's own listing or a board's copy, and lists every link on file.
 - **Re-posts are folded into the original.** If a posting never names its poster but talks about another company's product or team, and that company has the same role on file, the copy is folded into the employer's listing. For known re-posters Lookout also looks for the employer's own board.
 - **When the original can't be found, the copy is labelled**, for example "Re-posted by Joblet-AI for micro1", with a one-click search for the original. **Filters → More → Hide recruiters and re-posted roles** removes these from a view and from its alerts.
 

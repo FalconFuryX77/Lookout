@@ -17,7 +17,7 @@ import { DEFAULT_LINKEDIN_SEARCHES, LINKEDIN_ALERT_MAX_MIN } from './src/linkedi
 import { resumeText, parseResume } from './src/resume.mjs';
 import { matches, effectiveTime, fundStageOf, normCo } from './public/filters.mjs';
 import { normCompany } from './src/dedupe.mjs';
-import { namedEmployer, sameRole, boardSlugs, linkRank, REPOSTER } from './src/root.mjs';
+import { namedEmployer, sameRole, boardSlugs, linkRank, bestLink, isShortLink, followRedirects, REPOSTER } from './src/root.mjs';
 import { pool, domainOf, canonicalUrl, exportHttpValidators, importHttpValidators } from './src/util.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -176,7 +176,7 @@ async function runSource(src) {
     let postings;
     try { postings = await src.run({ cursor: st.cursor ||= {}, settings: S.settings, known: u => { const c = canonicalUrl(u); return store.dedupe.byUrl.has(c) || store.gone.has(c); } }); }
     catch (e) { if (!e.notModified) throw e; postings = []; } // feed unchanged since last check
-    const fresh = await resolveRoots(ingestAll(src.id, postings, bootstrapping));
+    const fresh = await directLinks(await resolveRoots(ingestAll(src.id, postings, bootstrapping)));
     Object.assign(st, { ok: true, at: new Date().toISOString(), ms: Date.now() - started, fetched: postings.length, added: fresh.length, error: '' });
     if (postings.length) { st.dataRuns = (st.dataRuns || 0) + 1; st.seen = (st.seen || 0) + postings.length; st.unique = (st.unique || 0) + fresh.length; }
     if (src.dynamic) { const d = S.dynamicSources.find(x => x.id === src.id); if (d && st.dataRuns >= 2 && !st.unique) { d.disabled = true; (S.rejectedRepos ||= []).push(d.repo.toLowerCase()); S.discoveryLog.unshift({ at: new Date().toISOString(), kind: 'retired', text: d.name, via: 'no unique jobs' }); log(`retired ${d.name}: everything it lists is already covered`); } }
@@ -401,7 +401,7 @@ async function findRoot(j, { probe = true } = {}) {
       const ck = normCompany(named.name);
       const theirs = S.jobs.filter(x => x !== j && normCompany(x.company) === ck);
       if (theirs.length) employer = theirs[0].company; else if (reposter && named.mentions >= 2) employer = named.name;
-      rootJob = theirs.find(x => linkRank(x.applyUrl || x.url) >= linkRank(j.applyUrl || j.url) && sameRole(j, x)) || null;
+      rootJob = theirs.find(x => linkRank(x.applyUrl || x.url, x.company) >= linkRank(j.applyUrl || j.url, j.company) && sameRole(j, x)) || null;
       // Only for known re-posters: look for the employer's own board, and accept it only if this very role is on it.
       if (!rootJob && probe && reposter && !boardByCo.has(ck) && Date.now() - Date.parse(S.rootProbes[ck] || 0) > 7 * 864e5) {
         S.rootProbes[ck] = new Date().toISOString();
@@ -436,6 +436,46 @@ async function resolveRoots(fresh, opts) {
   return out;
 }
 // One pass over what is already stored (no outside requests): fold or mark the re-posts that arrived before this existed.
+// ---------------------------------------------------------------- direct links
+// Community lists often hand out short links (go.vansh.nyc/…) that forward to the employer's own page.
+// Follow each one once, keep the real address, and let Apply open it. If that address is already on file
+// under another record, the two are the same role and become one.
+S.redirects ||= {}; // short link -> [final address or '', when checked]
+const shortQueue = []; let shortBusy = false;
+const hasShort = j => (j.urls || [j.url]).some(u => u && isShortLink(u));
+async function resolveShort(j) {
+  let changed = false;
+  for (const u of [...(j.urls || [j.url])]) {
+    if (!u || !isShortLink(u)) continue;
+    const key = canonicalUrl(u); let hit = S.redirects[key];
+    if (!hit || (!hit[0] && Date.now() - Date.parse(hit[1]) > 864e5)) { hit = S.redirects[key] = [(await followRedirects(u)) || '', new Date().toISOString()]; store.touch(); await new Promise(r => setTimeout(r, 250)); }
+    const final = hit[0]; if (!final || (j.urls || []).includes(final)) continue;
+    const other = store.byId.get(store.dedupe.byUrl.get(canonicalUrl(final)));
+    if (other && other !== j && store.byId.has(j.id)) { store.fold(other, j, { repost: false }); log(`direct: "${j.title}" at ${j.company} was already on file; merged`); return other; }
+    store.dedupe.unindex(j); j.urls = [...new Set([...(j.urls || [j.url]), final])]; store.dedupe.index(j); changed = true;
+    for (const h of harvestBoards(final)) addBoard(h.provider, h.board, j.company, 'followed link');
+  }
+  if (changed) { const best = bestLink(j.urls, j.company); if (best && linkRank(best, j.company) > linkRank(j.applyUrl || j.url, j.company)) j.applyUrl = best; store.touch(); }
+  return j;
+}
+/** New roles: resolve the first few right away so their alerts carry the real link; queue the rest. */
+async function directLinks(fresh) {
+  const out = []; let inline = 0;
+  for (const j of fresh) {
+    if (!hasShort(j)) { out.push(j); continue; }
+    if (inline++ >= 40) { shortQueue.push(j.id); out.push(j); continue; }
+    let r = j; try { r = await resolveShort(j); } catch { }
+    if (r === j) out.push(j); // folded into a role already on file: not new
+  }
+  return out;
+}
+setInterval(async () => {
+  if (shortBusy || !shortQueue.length) return; shortBusy = true;
+  try { for (let n = 0; n < 20 && shortQueue.length; n++) { const j = store.byId.get(shortQueue.shift()); if (j) await resolveShort(j).catch(() => { }); } }
+  finally { shortBusy = false; }
+}, 5000);
+// Roles stored before this existed
+setTimeout(() => { for (const j of S.jobs) if (hasShort(j) && !(j.urls || []).some(u => !isShortLink(u) && linkRank(u, j.company) === 3)) shortQueue.push(j.id); if (shortQueue.length) log(`direct: following ${shortQueue.length} short links in the background`); }, 20000);
 if (S.rootPass !== 1) setTimeout(async () => {
   const before = S.jobs.length; const list = S.jobs.filter(j => !j.sources.some(s => s.source === 'ats'));
   await resolveRoots(list, { probe: false });

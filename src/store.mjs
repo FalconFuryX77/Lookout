@@ -93,11 +93,11 @@ export class Store {
       if (fixed) { this.state.httpValidators = {}; this.repaired = true; } // re-read every board once, even ones that say "nothing changed"
       this.state.dedupeRepair = 1; this.dirty = true;
     }
-    if (this.state.rootLinks !== 1) { // Apply should open the most direct link a role has, not a job board's copy of it
+    if (this.state.rootLinks !== 2) { // Apply should open the most direct link a role has, not a job board's copy of it
       let n = 0;
-      for (const j of this.state.jobs) { const best = bestLink(j.urls || []); if (best && linkRank(best) > linkRank(j.applyUrl || j.url)) { j.applyUrl = best; n++; } }
+      for (const j of this.state.jobs) { const best = bestLink(j.urls || [], j.company); if (best && linkRank(best, j.company) > linkRank(j.applyUrl || j.url, j.company)) { j.applyUrl = best; n++; } }
       if (n) console.log(`store: ${n} roles now open the employer's own listing instead of a job board's copy`);
-      this.state.rootLinks = 1; this.dirty = true;
+      this.state.rootLinks = 2; this.dirty = true;
     }
     if (this.state.undatedListPurge !== 1) { // undated rows that only came from community lists aren't trustworthy
       const before = this.state.jobs.length;
@@ -115,8 +115,11 @@ export class Store {
     const tmp = this.file + '.tmp';
     this.state.gone = [...this.gone].slice(-80000);
     const body = JSON.stringify(this.state); delete this.state.gone;
-    await fs.writeFile(tmp, body);
-    await fs.rename(tmp, this.file);
+    try {
+      await fs.writeFile(tmp, body);
+      // Windows refuses the swap while anything (antivirus, a backup tool, an indexer) has db.json open; wait and retry.
+      for (let i = 0; ; i++) { try { await fs.rename(tmp, this.file); break; } catch (e) { if (i >= 5 || !['EPERM', 'EBUSY', 'EACCES'].includes(e.code)) throw e; await new Promise(r => setTimeout(r, 200 * (i + 1))); } }
+    } catch (e) { this.dirty = true; throw e; } // keep the changes for the next save instead of dropping them
   }
   touch() { this.dirty = true; }
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
@@ -180,10 +183,10 @@ export class Store {
   }
 
   /** Fold a re-poster's copy into the root record and drop the copy. Its links stay known, so it is not re-added. */
-  fold(root, copy) {
+  fold(root, copy, { repost = true } = {}) {
     this.dedupe.unindex(root); this.dedupe.unindex(copy);
     root.urls = [...new Set([...(root.urls || [root.url]), ...(copy.urls || [copy.url])].filter(Boolean))];
-    root.reposts ||= []; if (!root.reposts.some(r => r.company === copy.company)) root.reposts.push({ company: copy.company, source: copy.sources[0]?.source || '', url: copy.url });
+    if (repost) { root.reposts ||= []; if (!root.reposts.some(r => r.company === copy.company)) root.reposts.push({ company: copy.company, source: copy.sources[0]?.source || '', url: copy.url }); }
     for (const s of copy.sources) if (!root.sources.some(x => x.source === s.source)) root.sources.push(s);
     const t = this.state.tracking; if (t[copy.id] && !t[root.id]) t[root.id] = t[copy.id]; delete t[copy.id];
     this.state.jobs = this.state.jobs.filter(j => j !== copy); this.byId.delete(copy.id);
