@@ -3,7 +3,7 @@
 <h1 align="center">Lookout</h1>
 
 <p align="center"><b>Find startup jobs and internships minutes after they're posted, before the job boards do.</b><br>
-A local, near-real-time job scanner that watches freshly funded startups, deduplicates every source,<br>finds who to contact, and pushes matches to your phone.</p>
+A local, near-real-time job scanner that watches freshly funded startups, deduplicates every source,<br>matches roles to the skills your résumé, LinkedIn and GitHub show, finds who to contact, and pushes matches to your phone.</p>
 
 <p align="center"><a href="https://falconfuryx77.github.io/lookout/">Website</a> · <a href="https://github.com/FalconFuryX77/lookout/releases/latest">Download for Windows</a> · <a href="#browser-extension">Browser extension</a></p>
 
