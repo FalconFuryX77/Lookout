@@ -9,12 +9,15 @@ const DETECT = [
   ['workable', /apply\.workable\.com\/(?!api)([A-Za-z0-9_-]+)/i],
   ['smartrecruiters', /(?:careers|jobs)\.smartrecruiters\.com\/([A-Za-z0-9_-]+)/i],
   ['recruitee', /([A-Za-z0-9-]+)\.recruitee\.com/i],
+  ['workday', /\/\/((?:wd\d+\.)?myworkdaysite\.com\/(?:[a-z]{2}-[A-Z]{2}\/)?recruiting\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+)/i, m => m[1].replace(/\/(?:[a-z]{2}-[A-Z]{2}\/)?recruiting\//, '/')],
+  ['oracle', /\/\/([a-z0-9-]+\.fa(?:\.[a-z0-9-]+)*\.oraclecloud\.com)\/hcmUI\/CandidateExperience\/[a-z]{2}(?:-[A-Z]{2})?\/sites\/([A-Za-z0-9_]+)/i, m => `${m[1].toLowerCase()}/${m[2]}`],
 ];
 const BAD_SLUGS = new Set(['embed', 'js', 'api', 'v1', 'jobs', 'careers', 'static', 'assets', 'www', 'boards', 'job_board', 'cdn']);
 
 export function detectInText(text) {
-  for (const [provider, re] of DETECT) {
+  for (const [provider, re, build] of DETECT) {
     const m = String(text).match(re);
+    if (m && build) return { provider, board: build(m) };
     if (m && m[1] && !BAD_SLUGS.has(m[1].toLowerCase())) return { provider, board: decodeURIComponent(m[1]).replace(/\.$/, '') };
   }
   return null;
@@ -37,7 +40,7 @@ export async function detectAts(website, nameHint = '') {
 }
 
 /** Fetch all current postings of one ATS board as normalized postings (minus `source`). */
-export async function fetchBoard({ provider, board, company }) {
+export async function fetchBoard({ provider, board, company, known, state }) {
   const b = encodeURIComponent(board);
   if (provider === 'greenhouse') {
     const { data } = await getJson(`https://boards-api.greenhouse.io/v1/boards/${b}/jobs?content=true`, { timeout: 15000 });
@@ -106,7 +109,80 @@ export async function fetchBoard({ provider, board, company }) {
       companyMeta: { yc: j.companyBatchName || c.batch_name, funded: true, ycSlug: board, website: c.website },
     }));
   }
+  if (provider === 'workday' || provider === 'oracle') return pagedBoard(provider, board, company, known, state);
   throw new Error(`Unsupported ATS ${provider}`);
 }
 
-export const ATS_PROVIDERS = ['greenhouse', 'lever', 'ashby', 'workable', 'smartrecruiters', 'recruitee', 'yc'];
+export const ATS_PROVIDERS = ['greenhouse', 'lever', 'ashby', 'workable', 'smartrecruiters', 'recruitee', 'yc', 'workday', 'oracle'];
+
+// ── Workday (myworkdaysite.com) and Oracle Cloud recruiting ───────────────────────────────────────
+// Both list a company's roles newest first, a page at a time, without descriptions. Each poll reads the
+// newest pages until it meets roles it already has, then keeps walking older pages where the last poll
+// stopped, fetching full details for at most DETAIL_BUDGET new roles. Big employers fill in over a few polls.
+// Workday's main domain (myworkdayjobs.com) answers automated requests with a security check, so it is not
+// polled; only the myworkdaysite.com tenants that answer normally are.
+const DETAIL_BUDGET = 20;
+const BLOCKED = /Security Check|Enable JavaScript and cookies|cf-chl|Just a moment/i;
+async function fetchJson(url, { method = 'GET', body } = {}) {
+  const r = await fetch(url, { method, headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36', accept: 'application/json', 'accept-language': 'en', ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(20000) });
+  const text = await r.text();
+  if (!r.ok || BLOCKED.test(text.slice(0, 2000)) && !text.trimStart().startsWith('{')) { const e = new Error(BLOCKED.test(text) ? 'this careers site asks for a browser security check; not polled' : `HTTP ${r.status}`); e.status = r.status || 429; throw e; }
+  return JSON.parse(text);
+}
+const daysAgo = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10) + 'T00:00:00.000Z';
+function workdayPosted(s = '') { // "Posted Today", "Posted Yesterday", "Posted 3 Days Ago", "Posted 30+ Days Ago"
+  if (/today/i.test(s)) return daysAgo(0); if (/yesterday/i.test(s)) return daysAgo(1);
+  const n = s.match(/(\d+)\+?\s*day/i); return n ? daysAgo(Number(n[1])) : null;
+}
+const PLATFORM = {
+  workday: board => {
+    const [host, tenant, site] = board.split('/'); const api = `https://${host}/wday/cxs/${tenant}/${site}`;
+    return {
+      size: 20,
+      list: async offset => ((await fetchJson(`${api}/jobs`, { method: 'POST', body: { appliedFacets: {}, limit: 20, offset, searchText: '' } })).jobPostings || []),
+      url: p => `https://${host}/recruiting/${tenant}/${site}${p.externalPath}`,
+      detail: async (p, company) => {
+        const i = (await fetchJson(`${api}${p.externalPath}`)).jobPostingInfo || {};
+        return { sourceJobId: `wd:${tenant}:${i.jobReqId || p.externalPath}`, title: i.title || p.title, company, location: i.location || p.locationsText || '', typeHint: i.timeType || '', description: htmlToText(i.jobDescription || ''), postedAt: i.startDate ? `${String(i.startDate).slice(0, 10)}T00:00:00.000Z` : workdayPosted(p.postedOn), precision: 'date' };
+      },
+    };
+  },
+  oracle: board => {
+    const [host, site] = board.split('/'); const api = `https://${host}/hcmRestApi/resources/latest`;
+    return {
+      size: 25,
+      list: async offset => ((await fetchJson(`${api}/recruitingCEJobRequisitions?onlyData=true&expand=requisitionList.secondaryLocations&finder=findReqs;siteNumber=${site},limit=25,offset=${offset},sortBy=POSTING_DATES_DESC`)).items?.[0]?.requisitionList || []),
+      url: p => `https://${host}/hcmUI/CandidateExperience/en/sites/${site}/job/${p.Id}`,
+      detail: async (p, company) => {
+        const d = (await fetchJson(`${api}/recruitingCEJobRequisitionDetails?expand=all&onlyData=true&finder=ById;Id=%22${encodeURIComponent(p.Id)}%22,siteNumber=${site}`)).items?.[0] || {};
+        const posted = d.ExternalPostedStartDate || p.PostedDate;
+        return { sourceJobId: `oracle:${host}:${p.Id}`, title: d.Title || p.Title, company, location: [p.PrimaryLocation, p.WorkplaceType].filter(Boolean).join(' · ') || d.PrimaryLocation || '', typeHint: d.JobSchedule || p.JobSchedule || '', levelHint: d.JobLevel || '', description: htmlToText([d.ExternalDescriptionStr, d.ExternalResponsibilitiesStr, d.ExternalQualificationsStr].filter(Boolean).join('\n')), postedAt: toIso(posted), precision: /T\d/.test(posted || '') ? 'minute' : 'date' };
+      },
+    };
+  },
+};
+async function pagedBoard(provider, board, company, known = () => false, state = {}) {
+  const P = PLATFORM[provider](board); const out = []; let budget = DETAIL_BUDGET;
+  const take = async page => { // returns true when every role on the page is stored or already known
+    let done = true;
+    for (const p of page) {
+      const url = P.url(p); if (known(url)) continue;
+      if (budget <= 0) { done = false; continue; }
+      budget--; try { out.push({ ...(await P.detail(p, company || board)), url }); } catch (e) { if (e.status === 429) throw e; done = false; }
+      await new Promise(r => setTimeout(r, 250));
+    }
+    return done;
+  };
+  // 1. newest roles first, until a page holds nothing new
+  for (let off = 0; off < P.size * 5 && budget > 0; off += P.size) {
+    const page = await P.list(off); if (!page.length) { state.end = true; break; }
+    const fresh = page.some(p => !known(P.url(p))); await take(page);
+    if (!fresh) break;
+  }
+  // 2. carry on into older roles where the last poll stopped
+  for (let off = Math.max(state.next || 0, P.size); !state.end && budget > 0 && off < 600; off += P.size) {
+    const page = await P.list(off); if (!page.length) { state.end = true; break; }
+    if (await take(page)) state.next = off + P.size; else break;
+  }
+  return out;
+}

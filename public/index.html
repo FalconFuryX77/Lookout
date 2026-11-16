@@ -153,12 +153,39 @@
           <div class="form-foot"><button class="btn primary">Save</button><button type="button" class="btn" id="testPush">Send test</button><span class="muted small" id="pushMsg"></span></div>
           <p class="fine">Public ntfy topics can be read by anyone who guesses the name, so pick a long random one.</p>
         </form>
+        <div class="card form" id="extCard">
+          <div class="card-h"><h3>Browser extension</h3><span class="muted" id="extStatus"></span></div>
+          <p class="fine" style="margin-top:0">Open any job page in Edge or Chrome, click the Lookout button, and see which of the role's skills you have, whether it asks for more experience than you have, and whether Lookout already found it. It reads a page only when you click, and sends it only to this Lookout.</p>
+          <ol class="steps"><li>In Edge or Chrome open <code>edge://extensions</code> or <code>chrome://extensions</code> and turn on <b>Developer mode</b>.</li><li>Choose <b>Load unpacked</b> and pick the folder <code id="extFolder"></code></li><li>Open the extension's options and paste this pairing key.</li></ol>
+          <div class="keyrow"><code id="extKey">••••••••</code><button type="button" class="btn sm" id="extCopy">Copy</button><button type="button" class="btn sm ghost" id="extShow">Show</button><button type="button" class="btn sm ghost" id="extRotate" title="Make a new key; the extension has to be paired again">New key</button></div>
+          <p class="muted small" id="extMsg" style="margin:10px 0 0;min-height:1.2em"></p>
+        </div>
+        <div class="card form" id="devCard" hidden>
+          <div class="card-h"><h3>Other devices</h3><span class="muted">Phone or tablet on the same Wi-Fi</span></div>
+          <p class="fine" style="margin-top:0">Open this link on the device once; it remembers it. Anyone with the link can use your Lookout, so share it like a password.</p>
+          <div id="devLinks" class="tokens" style="margin:0 0 10px"></div>
+          <button type="button" class="btn sm ghost" id="devRotate">New link (signs other devices out)</button>
+        </div>
         <form id="liForm" class="card form">
           <div class="card-h"><h3>LinkedIn searches</h3><span class="muted">Public listings, no account</span></div>
           <p class="fine" style="margin-top:0">One search per line: <code>keywords | location</code>. Add <code>| remote</code> for remote-only. Up to 12; fewer is faster. Leave empty to turn LinkedIn off. Checked every 4 minutes; you get a push only for roles posted in the last 2 hours.</p>
           <label><textarea name="searches" rows="6" spellcheck="false" placeholder="software engineer intern | India"></textarea></label>
           <div class="form-foot"><button class="btn primary">Save</button><span class="muted small" id="liMsg"></span></div>
         </form>
+        <div class="card form" id="srcCard">
+          <div class="card-h"><h3>Sources</h3><span class="muted" id="srcSummary"></span></div>
+          <label class="check"><input type="checkbox" id="discoverToggle"><span>Find new boards and lists on my own</span></label>
+          <p class="fine" style="margin:-6px 0 18px">Adds every careers board it spots inside a listing, YC companies, freshly funded startups and new community job lists on GitHub. Turn it off to keep exactly the boards and lists you chose.</p>
+          <div class="pref"><span>How often to check</span><div class="seg" id="paceSeg"><button type="button" data-v="auto">Auto</button><button type="button" data-v="saver">Saver</button><button type="button" data-v="slow">Slow</button></div></div>
+          <p class="fine" id="paceNote" style="margin:-4px 0 22px"></p>
+          <div class="sub-h">Board lists</div>
+          <p class="fine" style="margin:0 0 12px">A list is a file of careers boards and GitHub job lists. Share yours with a friend, or start from someone else's.</p>
+          <div class="list-row" id="starterRow"><div><b>Starter list</b><span id="starterNote"></span></div><button type="button" class="btn sm" id="starterAdd">Add</button></div>
+          <div class="list-row"><div><b>Import a list</b><span>A <code>.json</code> sources file someone sent you</span></div><input type="file" id="importFile" accept=".json,application/json" hidden><button type="button" class="btn sm" id="importBtn">Choose file</button></div>
+          <div class="list-row"><div><b>Share your list</b><span>Save your boards and lists as a file</span></div><button type="button" class="btn sm" id="exportBtn">Export</button></div>
+          <div class="list-row"><div><b>Start over</b><span>Remove every board and list, then add only the ones you want</span></div><button type="button" class="btn sm ghost danger" id="resetBtn">Remove all</button></div>
+          <p class="muted small" id="srcMsg" style="margin:10px 0 0;min-height:1.2em"></p>
+        </div>
         <div class="card"><div class="card-h"><h3>Recent alerts</h3><span class="muted" id="alertNote"></span></div><div id="alertLog"></div></div>
         <div class="card"><div class="card-h"><h3>Blocked companies</h3></div><div id="blockedList" class="tokens" style="margin:0"></div></div>
         <div class="card"><div class="card-h"><h3>Keyboard</h3></div>
@@ -226,6 +253,16 @@
   <input type="file" id="welcomeFile" accept=".pdf,.docx,.txt,.md,application/pdf" hidden>
   <div class="form-foot"><button type="button" class="btn primary" id="welcomePick">Choose résumé</button><button type="button" class="btn" id="welcomePaste">Paste text</button><span style="flex:1"></span><button type="button" class="btn ghost" id="welcomeSkip">Not now</button></div>
   <p class="muted small" id="welcomeMsg" style="margin:12px 0 0;min-height:1.2em"></p></dialog>
+<dialog id="exportDlg"><form method="dialog" id="exportForm"><h2>Share your list</h2>
+  <p class="muted small">Saves a file anyone can import into their own Lookout. It holds careers boards and job lists only: nothing about you, your profile or your pipeline.</p>
+  <label>Name<input name="name" maxlength="80" value="My Lookout sources"></label>
+  <label class="check"><input type="radio" name="scope" value="useful" checked><span>Most useful: boards that produced roles matching your saved views or pipeline</span></label>
+  <label class="check"><input type="radio" name="scope" value="all"><span>Everything: all <span id="exportAll"></span> boards and lists</span></label>
+  <div class="form-foot end"><button type="button" class="btn ghost" id="exportCancel">Cancel</button><button value="ok" class="btn primary">Save file</button></div></form></dialog>
+<dialog id="resetDlg"><form method="dialog" id="resetForm"><h2>Remove all boards and lists?</h2>
+  <p class="muted small">Lookout stops checking <span id="resetCount"></span>. Roles already found stay until they age out, and companies you watch by hand are kept. Built-in community lists are switched off; you can switch any back on in Sources.</p>
+  <label class="check"><input type="checkbox" name="stop" checked><span>Also stop finding new ones on my own, so only lists I add are used</span></label>
+  <div class="form-foot end"><button type="button" class="btn ghost" id="resetCancel">Cancel</button><button value="ok" class="btn primary danger">Remove all</button></div></form></dialog>
 <div class="toasts" id="toasts"></div>
 <script type="module" src="/app.js"></script>
 </body>

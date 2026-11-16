@@ -143,7 +143,7 @@ export class Store {
    * Ingest one normalized posting. Returns { job, isNew } — isNew=false when it merged into
    * an existing record from another (or the same) source.
    */
-  ingest(raw) {
+  ingest(raw, { keep = false } = {}) { // keep: you chose this role yourself, so age and earlier removal do not apply
     // Fast path: same source re-reporting a job we already have (most of every poll).
     const quick = raw.url && this.dedupe.byUrl.get(canonicalUrl(raw.url));
     if (quick) { const j = this.byId.get(quick); if (j && j.sources.some(s => s.source === raw.source)) {
@@ -153,8 +153,8 @@ export class Store {
       return { job: j, isNew: false };
     } }
     // Too old to matter, or already pruned once (prevents re-adding the same postings every poll).
-    if (raw.postedAt && Date.now() - Date.parse(raw.postedAt) > MAX_AGE_DAYS * 864e5) return { job: null, isNew: false };
-    if (raw.url && this.gone.has(canonicalUrl(raw.url))) return { job: null, isNew: false };
+    if (!keep && raw.postedAt && Date.now() - Date.parse(raw.postedAt) > MAX_AGE_DAYS * 864e5) return { job: null, isNew: false };
+    if (!keep && raw.url && this.gone.has(canonicalUrl(raw.url))) return { job: null, isNew: false };
     const p = enrich(raw);
     p.precision = p.precision || 'unknown';
     const existingId = this.dedupe.match(p, id => this.byId.get(id));

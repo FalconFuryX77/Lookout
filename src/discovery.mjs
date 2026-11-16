@@ -15,16 +15,19 @@ const ATS_GLOBAL = [
   ['workable', /apply\.workable\.com\/(?!api\b)([A-Za-z0-9_-]+)/gi],
   ['smartrecruiters', /(?:careers|jobs)\.smartrecruiters\.com\/([A-Za-z0-9_-]+)/gi],
   ['recruitee', /\/\/([A-Za-z0-9-]+)\.recruitee\.com/gi],
+  // Workday only on myworkdaysite.com: myworkdayjobs.com puts a browser security check in front of automated requests
+  ['workday', /\/\/((?:wd\d+\.)?myworkdaysite\.com)\/(?:[a-z]{2}-[A-Z]{2}\/)?recruiting\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)/gi, m => `${m[1].toLowerCase()}/${m[2]}/${m[3]}`],
+  ['oracle', /\/\/([a-z0-9-]+\.fa(?:\.[a-z0-9-]+)*\.oraclecloud\.com)\/hcmUI\/CandidateExperience\/[a-z]{2}(?:-[A-Z]{2})?\/sites\/([A-Za-z0-9_]+)/gi, m => `${m[1].toLowerCase()}/${m[2]}`],
 ];
 const BAD = new Set(['embed', 'js', 'api', 'v1', 'jobs', 'careers', 'static', 'assets', 'www', 'boards', 'job_board', 'cdn', 'j', 'o', 'p', 'share', 'oauth']);
 
 /** All ATS boards referenced in a blob of text/URLs. */
 export function harvestBoards(text) {
   const out = new Map();
-  for (const [provider, re] of ATS_GLOBAL) {
+  for (const [provider, re, build] of ATS_GLOBAL) {
     re.lastIndex = 0;
     for (const m of String(text).matchAll(re)) {
-      const board = decodeURIComponent(m[1]).replace(/[.)]+$/, '');
+      const board = build ? build(m) : decodeURIComponent(m[1]).replace(/[.)]+$/, '');
       if (!board || board.length < 2 || BAD.has(board.toLowerCase())) continue;
       out.set(`${provider}:${board.toLowerCase()}`, { provider, board });
     }
@@ -97,6 +100,11 @@ export async function inspectList(url) {
 
 /** Poll interval (ms) for a board, adapted to how active and how valuable it is. */
 export function boardInterval(b, now = Date.now()) {
+  // Big-company systems hold hundreds of roles and are read a page at a time: never more often than every 15 minutes.
+  if ((b.provider === 'workday' || b.provider === 'oracle') && !b.watched && !(b.errors >= 3)) return Math.max(900e3, baseInterval(b, now));
+  return baseInterval(b, now);
+}
+function baseInterval(b, now) {
   if (b.errors >= 3) return 6 * 36e5;                                     // broken: retry every 6h
   if (b.watched) return 60e3;                                              // you asked for it
   if (b.fundedAt && now - Date.parse(b.fundedAt) < 45 * 864e5) return 120e3; // just raised: about to hire

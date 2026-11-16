@@ -27,7 +27,12 @@ $null = New-Item -ItemType Directory -Path (Join-Path $stage 'desktop') -Force
 $files = 'Lookout.exe', 'Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll', 'server.mjs', 'package.json', 'README.md', 'setup-desktop.ps1'
 foreach ($f in $files) { Copy-Item (Join-Path $root $f) $stage }
 Copy-Item (Join-Path $root 'src') $stage -Recurse
+# the extension uses the same skill code as the app: refresh its copy first
+& node (Join-Path $root 'extension\sync-shared.mjs')
 Copy-Item (Join-Path $root 'public') $stage -Recurse
+Copy-Item (Join-Path $root 'extension') $stage -Recurse
+$null = New-Item -ItemType Directory -Path (Join-Path $stage 'starter') -Force
+Copy-Item (Join-Path $root 'starter\sources.json') (Join-Path $stage 'starter')
 Copy-Item (Join-Path $root 'desktop\lookout.ico') (Join-Path $stage 'desktop')
 
 # 2. Sign
@@ -55,4 +60,8 @@ if ($cert) {
 # 3. Zip
 $zip = Join-Path $dist 'Lookout-windows.zip'
 Compress-Archive -Path $stage -DestinationPath $zip -Force
+# the extension on its own, ready for the Chrome Web Store or Edge Add-ons
+$extZip = Join-Path $dist 'lookout-extension.zip'
+Compress-Archive -Path (Join-Path $root 'extension\*') -DestinationPath $extZip -Force
+Write-Host "Built $extZip."
 Write-Host "Built $zip ($([math]::Round((Get-Item $zip).Length / 1KB)) KB)."

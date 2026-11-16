@@ -119,7 +119,7 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
 <nav><div class="wrap">
   <a class="brand" href="#top"><img src="logo.svg" alt="">Lookout</a>
   <div class="links">
-    <a href="#early">Why early</a><a href="#features">Features</a><a href="#filters">Filters</a><a href="#resume">Résumé match</a><a href="#privacy">Privacy</a><a href="#faq">FAQ</a>
+    <a href="#early">Why early</a><a href="#features">Features</a><a href="#filters">Filters</a><a href="#extension">Extension</a><a href="#resume">Résumé match</a><a href="#privacy">Privacy</a><a href="#faq">FAQ</a>
     <a class="btn sm primary" href="https://github.com/FalconFuryX77/lookout/releases/latest">Download</a>
   </div>
 </div></nav>
@@ -153,7 +153,7 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
   <p class="lede">A popular listing collects hundreds of one-click applications in a day. The people who get a reply are mostly the ones who applied while the recruiter was still looking at a short list. Lookout's whole job is to put you there.</p>
   <div class="facts">
     <div><strong>4 min</strong><span>How often LinkedIn's public search is checked for roles posted in the last few hours.</span></div>
-    <div><strong>1–60 min</strong><span>How often each company's own careers board is checked. Active boards are checked more often.</span></div>
+    <div><strong>1–60 min</strong><span>How often each company's own careers board is checked. Busy boards more often; switch to Saver or Slow to go easy on your battery.</span></div>
     <div><strong>“6 min ago”</strong><span>Every alert says how old the posting was when it was sent, so you know what you're racing.</span></div>
   </div>
 </div></section>
@@ -165,7 +165,7 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
     <div class="card wide">
       <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 12l6-4"/></svg></div>
       <h3>Goes to the source, and cuts out the middlemen</h3>
-      <p>Lookout reads companies' own applicant systems (Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, YC) directly, alongside LinkedIn, Hacker News and remote-job boards. When the same role shows up in five places it becomes one card, and Apply opens the most direct link. Re-posts by recruiters are folded into the original, or clearly labelled when the original can't be found.</p>
+      <p>Lookout reads companies' own applicant systems (Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, Oracle, Workday, YC) directly, alongside LinkedIn, Hacker News and remote-job boards. When the same role shows up in five places it becomes one card, and Apply opens the most direct link: short links are followed to where they land, and each role tells you before you click whether Apply opens the employer's own listing. Re-posts by recruiters are folded into the original, or clearly labelled when the original can't be found.</p>
       <div class="chain"><span>Job board</span><i>→</i><span>Recruiter's page</span><i>→</i><span class="ok">The company's own listing</span></div>
     </div>
     <div class="card">
@@ -181,7 +181,7 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
     <div class="card">
       <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg></div>
       <h3>Filters that mean it</h3>
-      <p>Field, role, internship or full-time, years asked for, visa sponsorship, remote, country, pay, degree, internship term, funding stage and skills. Roles that want more experience than you have are hidden unless you ask to see them.</p>
+      <p>Field, role, internship or full-time, years asked for, visa, remote, country, pay, degree, internship term, funding stage and skills. Click once to include, twice to exclude. Roles that want more experience than you have are hidden unless you ask to see them.</p>
     </div>
     <div class="card">
       <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M4 7l8 6 8-6"/></svg></div>
@@ -195,8 +195,8 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
     </div>
     <div class="card">
       <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5M11 8v6M8 11h6"/></svg></div>
-      <h3>Finds new sources by itself</h3>
-      <p>Every link Lookout sees is checked for a careers board it doesn't know yet, and it searches GitHub for new community job lists. The longer it runs, the more it covers.</p>
+      <h3>Finds new sources, or uses yours</h3>
+      <p>Every link Lookout sees is checked for a careers board it doesn't know yet, and it searches GitHub for new community job lists. Prefer your own? Turn that off and start from a list a friend shared.</p>
     </div>
   </div>
 </div></section>
@@ -205,7 +205,7 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
   <figure class="shot side tall">
     <picture>
       <source media="(prefers-color-scheme: light)" srcset="img/filters-light.webp">
-      <img src="img/filters-dark.webp" width="880" height="1800" loading="lazy" alt="The filter panel. Under Skills, My skills has ticked every language on the profile; the list is grouped with technical skills first and shows how many roles ask for each.">
+      <img src="img/filters-dark.webp" width="880" height="1800" loading="lazy" alt="The filter panel. Under Visa, Sponsors visa is included and Citizens / clearance only is excluded, shown struck through in red. Under Skills, My skills has ticked every skill on the profile.">
     </picture>
   </figure>
   <div>
@@ -213,6 +213,8 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
     <h2>Say exactly what you're after. Once.</h2>
     <p class="lede">Every filter shows how many roles it would leave before you click it. Save a combination as a view, and the same rules decide which roles reach your phone.</p>
     <ul class="ticks">
+      <li><span><b>Include or exclude anything.</b> Click an option once to include it, again to exclude it, once more to clear it. Rule out citizens-only roles, Java, or a whole field.</span></li>
+      <li><span><b>Words, in the whole posting.</b> Show only roles that mention “python” or “rust”; hide ones that mention “senior”. It reads the full description, not just the title.</span></li>
       <li><span><b>My skills, in one click.</b> Tick everything on your profile and see only roles that use it.</span></li>
       <li><span><b>Experience that means it.</b> Internship, new grad, years asked for. Roles that want more than you have stay out of the way.</span></li>
       <li><span><b>Visa, remote, country, pay, degree, internship term</b>, funding stage, and whether there's an email to write to.</span></li>
@@ -228,6 +230,44 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
     <picture>
       <source media="(prefers-color-scheme: light)" srcset="img/sources-light.webp">
       <img src="img/sources-dark.webp" width="2880" height="1800" loading="lazy" alt="The Sources page: 1,854 company boards, a bar showing how often they are checked, where they were found, and a list of boards discovered in the last few minutes.">
+    </picture>
+  </figure>
+  <div class="grid">
+    <div class="card">
+      <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg></div>
+      <h3>A starter list, one click away</h3>
+      <p>About 2,000 careers boards and 8 community lists that were posting recently. Add it on day one instead of waiting for Lookout to find them.</p>
+    </div>
+    <div class="card">
+      <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.2 10.9l7.6-3.8M8.2 13.1l7.6 3.8"/></svg></div>
+      <h3>Share your list</h3>
+      <p>Export the boards that actually produced roles you wanted, as a plain file. A friend imports it, or clears everything first and uses only yours. No profile or pipeline goes with it.</p>
+    </div>
+    <div class="card">
+      <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+      <h3>Your pace</h3>
+      <p>Auto checks busy boards every few minutes. Saver checks every 30 minutes to 2 hours; Slow, a few times a day. Discovery can be switched off entirely.</p>
+    </div>
+  </div>
+</div></section>
+
+<section id="extension"><div class="wrap split">
+  <div>
+    <span class="eyebrow">Browser extension</span>
+    <h2>Any job page, checked against you.</h2>
+    <p class="lede">Found a role somewhere Lookout doesn't scan? Click the Lookout button and it reads the posting, compares it with your profile, and tells you whether Lookout already has it.</p>
+    <ul class="ticks">
+      <li><span><b>The skills gap, at a glance.</b> Which of the role's skills you have and which you're missing, plus a warning when it wants more experience than you have or is citizens-only.</span></li>
+      <li><span><b>Already in Lookout?</b> Where it was seen, when it was posted, and whether Apply there goes to the employer.</span></li>
+      <li><span><b>Save to pipeline.</b> Roles from Workday careers sites or LinkedIn join the rest of your search.</span></li>
+      <li><span><b>Only when you click.</b> It reads the page you're on, sends it only to Lookout on your computer, and still compares skills while Lookout is closed.</span></li>
+    </ul>
+    <p class="fine" style="text-align:left">Edge and Chrome. Included with the download; load it from the <code>extension</code> folder.</p>
+  </div>
+  <figure class="shot side" style="max-width:380px">
+    <picture>
+      <source media="(prefers-color-scheme: light)" srcset="img/extension-light.webp">
+      <img src="img/extension-dark.webp" width="760" height="1126" loading="lazy" alt="The Lookout extension on a Junior AI Engineer posting at Christy Industries: 7 of 19 skills you have, with Python, SQL, Machine Learning, PyTorch, LLMs, Docker and Git highlighted. Lookout already has this role, seen on a GitHub list 27 days ago, and Apply there opens the employer's own listing. Buttons: Save to pipeline, Open in Lookout, Watch this company.">
     </picture>
   </figure>
 </div></section>
@@ -272,6 +312,7 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
     <li><span><b>No account.</b> There is nothing to sign up for and nobody to give your details to.</span></li>
     <li><span><b>Your data stays in one file on your disk.</b> Résumé, profile, saved roles and notes.</span></li>
     <li><span><b>No logins to other sites.</b> It reads only what anyone can see without signing in, and never asks for your LinkedIn password.</span></li>
+    <li><span><b>Locked to your computer.</b> Other websites can't reach it through your browser; the extension and your phone need a key you give them.</span></li>
     <li><span><b>The code is there to read.</b> Plain JavaScript with no third-party packages.</span></li>
   </ul>
 </div></section>
@@ -284,6 +325,8 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
     <details><summary>What do I need installed?</summary><p>Windows 10 or 11 and Node.js 20 or newer. The Edge WebView2 runtime is also needed; Windows 11 has it already. There are no other packages to install.</p></details>
     <details><summary>Is it really free?</summary><p>Yes. Phone alerts use ntfy, which is also free. Nothing in Lookout costs money or needs a paid key.</p></details>
     <details><summary>Is reading LinkedIn allowed?</summary><p>Lookout reads LinkedIn's public job search, the pages anyone sees logged out, gently and without an account. Automated access is still against LinkedIn's terms of use, so that source is your call: clear the box in Settings and it is off.</p></details>
+    <details><summary>What does the browser extension need?</summary><p>Edge or Chrome. It comes in the download's <code>extension</code> folder: turn on Developer mode on the extensions page, choose Load unpacked, then paste the pairing key from Lookout's Settings. It reads a page only when you click its button.</p></details>
+    <details><summary>Can I use it on my phone?</summary><p>Alerts come to your phone through the free ntfy app. To browse Lookout itself on your phone, run it with <code>HOST=0.0.0.0</code> and open the link from Settings → Other devices while on the same Wi-Fi; the link carries a key, so share it like a password.</p></details>
     <details><summary>Does it apply for me?</summary><p>No. It finds roles, tells you fast, opens the right link and drafts an outreach note. You apply and send yourself.</p></details>
     <details><summary>Mac or Linux?</summary><p>The scanner itself runs anywhere Node.js does: run <code>npm start</code> and open it in your browser. The packaged app with the tray icon is Windows only for now.</p></details>
   </div>

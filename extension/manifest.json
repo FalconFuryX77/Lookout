@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Lookout",
+  "version": "1.0.0",
+  "description": "Compare any job page with your Lookout profile: which skills you have, what's missing, and whether Lookout already found the role.",
+  "action": {
+    "default_title": "Compare this job with Lookout",
+    "default_popup": "popup.html",
+    "default_icon": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" }
+  },
+  "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "options_ui": { "page": "options.html", "open_in_tab": false },
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"]
+}

@@ -2,6 +2,7 @@ import { skillInfo, SKILL_GROUPS } from './skills.mjs';
 import { linkRank } from './links.mjs';
 const linkKind = (u, co) => ['copy', 'site', 'near', 'direct'][Math.max(0, linkRank(u, co))];
 const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } };
+import { NOT_KEY, filterWords, mentionsInSummary } from './filters.mjs';
 import { matches, evaluate, freshness, score, skillMatch, fit, effectiveTime, normalizeFilters, normCo, EMPTY_FILTERS, FIELDS, STAGES, stagesOf, VISA, WORK_MODES, DEGREES, FUND_STAGES, AGE_MS } from './filters.mjs';
 
 // ───────────────────────────────────────────── utilities
@@ -85,7 +86,7 @@ const visaShort = { 'Sponsors visa': ['Sponsors visa', 'good'], 'No sponsorship'
 const FIELD_LABEL = { 'Core Engineering': 'Hardware & physical eng.' };
 const LEVEL_LABEL = { 'Senior+': 'Lead / Principal', Entry: 'Entry / new grad', Mid: 'Mid / not stated' };
 const fl$ = x => FIELD_LABEL[x] || x; const lv$ = x => LEVEL_LABEL[x] || x; const st$ = lv$;
-const srcName = id => S.meta?.sources.find(s => s.id === id)?.name || id;
+const srcName = id => S.meta?.sources.find(s => s.id === id)?.name || { ats: 'Company careers site', browser: 'Saved from your browser' }[id] || id;
 const profile = () => S.meta?.settings?.profile || {};
 
 // toasts
@@ -117,10 +118,24 @@ const S = {
   sel: null, limit: 150, pending: [], sigSeg: 'news', openSecs: new Set(ls.get('lk2.secs', ['age', 'field', 'exp', 'visa'])),
 };
 let blockedCache = { src: null, set: new Set() };
+// "Only roles mentioning" / "Hide roles mentioning" search whole postings, which only the scanner holds.
+// It answers once per word (and again for roles that arrive later); until then a role's summary is used.
+const mentionCache = new Map(); // word -> { hits: Set of ids, covered: Set of ids }
+const mentionsFn = (j, t) => { const e = mentionCache.get(t); return e && e.covered.has(j.id) ? e.hits.has(j.id) : mentionsInSummary(j, t); };
+async function syncMentions(ids) {
+  const words = new Set(filterWords(S.filters)); for (const v of S.meta?.filterSets || []) for (const w of filterWords(v.filters)) words.add(w);
+  const need = ids ? [...words] : [...words].filter(w => !mentionCache.has(w));
+  if (!need.length || (ids && !ids.length)) return false;
+  try {
+    const r = await api('/api/mentions', { method: 'POST', body: JSON.stringify({ terms: need, ...(ids ? { ids } : {}) }) });
+    for (const t of need) { const e = mentionCache.get(t) || { hits: new Set(), covered: new Set() }; for (const id of r.terms[t] || []) e.hits.add(id); for (const id of r.ids) e.covered.add(id); mentionCache.set(t, e); }
+    evCache = null; return true;
+  } catch { return false; }
+}
 const ctx = () => {
   const b = S.meta?.blockedCompanies || [];
   if (blockedCache.src !== b) blockedCache = { src: b, set: new Set(b.map(normCo)) };
-  return { tracking: S.meta?.tracking || {}, blocked: blockedCache.set, profile: S.meta?.settings?.profile };
+  return { tracking: S.meta?.tracking || {}, blocked: blockedCache.set, profile: S.meta?.settings?.profile, mentions: mentionsFn };
 };
 function setFilters(patch, { keepView = false } = {}) {
   S.filters = normalizeFilters({ ...S.filters, ...patch });
@@ -128,6 +143,7 @@ function setFilters(patch, { keepView = false } = {}) {
   ls.set('lk2.filters', S.filters); ls.set('lk2.view', S.activeView); S.limit = 150;
   if ($('#q').value.trim() !== (S.filters.q || '') && document.activeElement !== $('#q')) $('#q').value = S.filters.q || ''; // keep box and chip in sync
   refreshJobs();
+  if (filterWords(S.filters).some(w => !mentionCache.has(w))) syncMentions().then(ok => ok && refreshJobs());
 }
 // List first (what the user is looking at); counters right after, off the critical path.
 const deferred = debounce(() => { renderQuick(); renderViews(); }, 60);
@@ -184,6 +200,13 @@ function chipList(f = S.filters) {
   if (f.hasContact) add('hasContact', 'Contact', 'Has email', { hasContact: false });
   if (f.hideAgencies) add('hideAgencies', 'Agencies', 'Hidden', { hideAgencies: false }, { neg: true, short: 'No agencies' });
   if (f.hideTracked) add('hideTracked', 'Tracked', 'Hidden', { hideTracked: false }, { short: 'Untracked only' });
+  for (const [k, nk] of Object.entries(NOT_KEY)) {
+    if (k === 'fields' || !f[nk]?.length) continue;
+    const map = { stages: st$, countries: c => c === 'Unknown' ? 'Location not stated' : c, sources: srcName }[k] || (x => x);
+    const label = { specialties: 'Role', stages: 'Stage', visa: 'Visa', workModes: 'Mode', countries: 'Location', degrees: 'Degree', terms: 'Term', fundStages: 'Funding', skills: 'Skill', sources: 'Source' }[k];
+    add(nk, `Not ${label.toLowerCase()}`, join(f[nk].map(map)), { [nk]: [] }, { neg: true, short: `No ${join(f[nk].map(map))}` });
+  }
+  if (f.includeQ.trim()) add('includeQ', 'Mentions', f.includeQ, { includeQ: '' }, { short: `Has “${f.includeQ.trim().slice(0, 24)}”` });
   if (f.excludeQ.trim()) add('excludeQ', 'Exclude', f.excludeQ, { excludeQ: '' }, { neg: true, short: `No “${f.excludeQ.trim().slice(0, 24)}”` });
   if (f.excludeCompanies.length) add('excludeCompanies', 'Hidden companies', join(f.excludeCompanies), { excludeCompanies: [] }, { neg: true, short: `No ${join(f.excludeCompanies)}` });
   return out;
@@ -435,7 +458,11 @@ $('#openFilters').onclick = openSheet; $('#closeSheet').onclick = closeSheet; $(
 $('#resetFilters').onclick = () => { S.activeView = null; setFilters({ ...EMPTY_FILTERS }); };
 $('#sheetSave').onclick = () => openSaveView();
 
-const opt = (key, value, label, n, checked) => `<label class="opt ${n === 0 && !checked ? 'zero' : ''}"><input type="checkbox" data-k="${key}" value="${esc(value)}" ${checked ? 'checked' : ''}><span class="box"></span><span class="lbl">${esc(label ?? value)}</span>${n !== undefined ? `<span class="n">${fmt(n)}</span>` : ''}</label>`;
+// Every option cycles: click once to include it, again to exclude it, once more to clear it.
+const triOf = (key, v) => S.filters[key]?.includes(v) ? 'inc' : S.filters[NOT_KEY[key]]?.includes(v) ? 'exc' : '';
+const opt = (key, value, label, n) => { const st = triOf(key, value); return `<div class="opt ${st} ${n === 0 && !st ? 'zero' : ''}" data-k="${key}" data-v="${esc(value)}" role="checkbox" tabindex="0" aria-checked="${st === 'inc' ? 'true' : st === 'exc' ? 'mixed' : 'false'}" title="${st === 'inc' ? 'Included. Click to exclude' : st === 'exc' ? 'Excluded. Click to clear' : 'Click to include'}"><span class="box">${st === 'exc' ? '–' : ''}</span><span class="lbl">${esc(label ?? value)}</span>${n !== undefined ? `<span class="n">${fmt(n)}</span>` : ''}</div>`; };
+const triNames = (key, map = x => x) => [...S.filters[key].map(map), ...S.filters[NOT_KEY[key]].map(v => `not ${map(v)}`)].join(', ');
+const triSum = key => { const i = S.filters[key].length, x = S.filters[NOT_KEY[key]].length; return [i && `${i} in`, x && `${x} out`].filter(Boolean).join(', '); };
 const sec = (id, title, sum, body) => `<details class="fs" data-sec="${id}" ${S.openSecs.has(id) ? 'open' : ''}><summary>${title}${sum ? `<span class="sum">${esc(sum)}</span>` : ''}</summary><div class="fs-body">${body}</div></details>`;
 function renderSheet() {
   const f = S.filters; const open = id => S.openSecs.has(id);
@@ -447,34 +474,34 @@ function renderSheet() {
   const ae = document.activeElement; const focusKey = ae && $('#sheetBody').contains(ae) ? (ae.dataset.search ? `[data-search="${ae.dataset.search}"]` : ae.id ? `#${ae.id}` : null) : null;
   const caret = focusKey && 'selectionStart' in ae ? [ae.selectionStart, ae.selectionEnd] : null;
   $('#sheetCount').textContent = '';
-  const parts = [];
+  const parts = ['<p class="tri-help sheet-help">Click an option to include it, again to exclude it, once more to clear it.</p>'];
   // posted
   parts.push(sec('age', 'Posted', f.age !== 'all' ? AGE_LABEL[f.age] : '', `<div class="seg full" data-seg="age">${Object.keys(AGE_MS).map(a => `<button data-v="${a}" class="${f.age === a ? 'on' : ''}">${a === 'all' ? 'Any' : a}</button>`).join('')}</div>`));
   // field (tri-state)
   { const counts = open('field') ? countsFor('fields', j => j.field, ['fields', 'excludeFields']) : new Map();
     parts.push(sec('field', 'Field', [f.fields.length && `${f.fields.length} in`, f.excludeFields.length && `${f.excludeFields.length} out`].filter(Boolean).join(', '),
-      `<p class="tri-help">Click to include, again to exclude.</p>` + Object.keys(FIELDS).map(fl => { const st = f.fields.includes(fl) ? 'inc' : f.excludeFields.includes(fl) ? 'exc' : ''; return `<div class="tri ${st}" data-field="${esc(fl)}" role="checkbox" tabindex="0" aria-checked="${st === 'inc' ? 'true' : st === 'exc' ? 'mixed' : 'false'}" aria-label="${esc(fl$(fl))}${st === 'exc' ? ' (excluded)' : ''}"><span class="st">${st === 'inc' ? '✓' : st === 'exc' ? '–' : ''}</span><span class="lbl">${esc(fl$(fl))}</span><span class="n">${fmt(counts.get(fl) || 0)}</span></div>`; }).join(''))); }
+      Object.keys(FIELDS).map(fl => { const st = f.fields.includes(fl) ? 'inc' : f.excludeFields.includes(fl) ? 'exc' : ''; return `<div class="tri ${st}" data-field="${esc(fl)}" role="checkbox" tabindex="0" aria-checked="${st === 'inc' ? 'true' : st === 'exc' ? 'mixed' : 'false'}" aria-label="${esc(fl$(fl))}${st === 'exc' ? ' (excluded)' : ''}"><span class="st">${st === 'inc' ? '✓' : st === 'exc' ? '–' : ''}</span><span class="lbl">${esc(fl$(fl))}</span><span class="n">${fmt(counts.get(fl) || 0)}</span></div>`; }).join(''))); }
   // specialty
   { const counts = open('spec') ? countsFor('specialties', j => j.specialty) : new Map();
     const fieldsShown = f.fields.length ? f.fields : Object.keys(FIELDS).filter(x => !f.excludeFields.includes(x));
-    parts.push(sec('spec', 'Role', f.specialties.length ? `${f.specialties.length} selected` : '', `<input class="fs-search" data-search="spec" placeholder="Filter roles…"><div class="scroll-opts" data-list="spec">${fieldsShown.map(fl => `<div class="sub-group">${esc(fl)}</div>` + FIELDS[fl].map(s => opt('specialties', s, s, counts.get(s) || 0, f.specialties.includes(s))).join('')).join('')}</div>`)); }
+    parts.push(sec('spec', 'Role', triSum('specialties'), `<input class="fs-search" data-search="spec" placeholder="Filter roles…"><div class="scroll-opts" data-list="spec">${fieldsShown.map(fl => `<div class="sub-group">${esc(fl)}</div>` + FIELDS[fl].map(s => opt('specialties', s, s, counts.get(s) || 0, f.specialties.includes(s))).join('')).join('')}</div>`)); }
   // experience
   { const lo = f.expMin ?? 0, hi = f.expMax ?? 10; const stc = open('exp') ? countsFor('stages', stagesOf) : new Map();
-    parts.push(sec('exp', 'Experience', [f.stages.map(st$).join(', '), (f.expMin !== null || f.expMax !== null) ? `${lo}–${hi === 10 ? '10+' : hi} yrs` : ''].filter(Boolean).join(' · '), `<p class="tri-help">Pick any. A role shows up if it matches one of them.</p><div class="opts" style="grid-template-columns:1fr 1fr;gap:1px 10px">${STAGES.map(t => opt('stages', t, st$(t), stc.get(t) || 0, f.stages.includes(t))).join('')}</div><div class="sub-group" style="padding:14px 0 6px 8px">Years asked for</div><div class="presets"><button data-exp="0,1">New grad</button><button data-exp="0,2">0–2</button><button data-exp="2,5">2–5</button><button data-exp="5,10">5+</button><button data-exp="">Any</button></div>
+    parts.push(sec('exp', 'Experience', [triNames('stages', st$), (f.expMin !== null || f.expMax !== null) ? `${lo}–${hi === 10 ? '10+' : hi} yrs` : ''].filter(Boolean).join(' · '), `<p class="tri-help">Pick any: a role shows up if it matches one of them, unless it matches one you excluded.</p><div class="opts" style="grid-template-columns:1fr 1fr;gap:1px 10px">${STAGES.map(t => opt('stages', t, st$(t), stc.get(t) || 0, f.stages.includes(t))).join('')}</div><div class="sub-group" style="padding:14px 0 6px 8px">Years asked for</div><div class="presets"><button data-exp="0,1">New grad</button><button data-exp="0,2">0–2</button><button data-exp="2,5">2–5</button><button data-exp="5,10">5+</button><button data-exp="">Any</button></div>
       <div class="range"><div class="range-vals"><span>Asks for <b id="expLo">${lo}</b> to <b id="expHi">${hi === 10 ? '10+' : hi}</b> years</span></div>
       <div class="dual"><div class="track"></div><div class="fill" id="expFill"></div><input type="range" min="0" max="10" step="1" value="${lo}" id="expMinR"><input type="range" min="0" max="10" step="1" value="${hi}" id="expMaxR"></div>
       <div class="ticks"><span>0</span><span>2</span><span>4</span><span>6</span><span>8</span><span>10+</span></div></div>
       <label class="mini-check"><input type="checkbox" id="expUnknown" ${f.expUnknown ? 'checked' : ''}>Include roles that don’t say</label>`)); }
   // visa
   { const c = open('visa') ? countsFor('visa', j => j.visa || 'Not stated') : new Map();
-    parts.push(sec('visa', 'Visa', f.visa.join(', '), `<div class="presets"><button data-visa="need" title="Keeps roles that sponsor or don’t say. Drops no-sponsorship and citizens-only roles.">I need sponsorship</button><button data-visa="sponsor">Confirmed sponsors</button><button data-visa="">Any</button></div><div class="opts">${VISA.map(v => opt('visa', v, v, c.get(v) || 0, f.visa.includes(v))).join('')}</div>`)); }
+    parts.push(sec('visa', 'Visa', triNames('visa'), `<div class="presets"><button data-visa="need" title="Keeps roles that sponsor or don’t say. Drops no-sponsorship and citizens-only roles.">I need sponsorship</button><button data-visa="sponsor">Confirmed sponsors</button><button data-visa="">Any</button></div><div class="opts">${VISA.map(v => opt('visa', v, v, c.get(v) || 0, f.visa.includes(v))).join('')}</div>`)); }
   // work mode
   { const c = open('mode') ? countsFor('workModes', j => j.workMode || 'Not stated') : new Map();
-    parts.push(sec('mode', 'Work mode', f.workModes.join(', '), `<div class="opts">${WORK_MODES.map(v => opt('workModes', v, v, c.get(v) || 0, f.workModes.includes(v))).join('')}</div>`)); }
+    parts.push(sec('mode', 'Work mode', triNames('workModes'), `<div class="opts">${WORK_MODES.map(v => opt('workModes', v, v, c.get(v) || 0, f.workModes.includes(v))).join('')}</div>`)); }
   // location
   { const c = open('loc') ? countsFor('countries', j => j.country) : new Map();
-    const list = [...c].sort((a, b) => (a[0] === 'Unknown') - (b[0] === 'Unknown') || b[1] - a[1]); for (const x of f.countries) if (!c.has(x)) list.push([x, 0]);
-    parts.push(sec('loc', 'Location', f.countries.join(', '), `<input class="fs-search" data-search="loc" placeholder="Filter countries…"><div class="scroll-opts opts" data-list="loc">${list.map(([v, n]) => opt('countries', v, v === 'Unknown' ? 'Location not stated' : v, n, f.countries.includes(v))).join('')}</div>`)); }
+    const list = [...c].sort((a, b) => (a[0] === 'Unknown') - (b[0] === 'Unknown') || b[1] - a[1]); for (const x of [...f.countries, ...f.notCountries]) if (!c.has(x)) list.push([x, 0]);
+    parts.push(sec('loc', 'Location', triNames('countries', x => x === 'Unknown' ? 'not stated' : x), `<input class="fs-search" data-search="loc" placeholder="Filter countries…"><div class="scroll-opts opts" data-list="loc">${list.map(([v, n]) => opt('countries', v, v === 'Unknown' ? 'Location not stated' : v, n, f.countries.includes(v))).join('')}</div>`)); }
   // pay
   { const v = f.payMin ?? 0;
     parts.push(sec('pay', 'Pay', f.payMin !== null ? `≥ $${f.payMin}k` : '', `<div class="range"><div class="range-vals"><span>At least <b id="payV">${v ? `$${v}k` : 'any'}</b> a year</span></div>
@@ -485,26 +512,28 @@ function renderSheet() {
     const SEASON_END = { Winter: 2, Spring: 5, Summer: 8, Fall: 11 }; const notPast = t => { const [se, y] = t.split(' '); return new Date(+y, SEASON_END[se] || 11, 28) >= new Date() || f.terms.includes(t); };
     const termKey = t => { const [se, y] = t.split(' '); return +y * 12 + (SEASON_END[se] || 11); };
     const terms = [...tc].filter(([t]) => notPast(t)).sort((a, b) => termKey(a[0]) - termKey(b[0])).slice(0, 12);
-    parts.push(sec('deg', 'Degree & term', [...f.degrees, ...f.terms].join(', '), `<div class="sub-group" style="padding:0 0 4px 8px">Accepts</div><div class="opts">${DEGREES.map(v => opt('degrees', v, v, dc.get(v) || 0, f.degrees.includes(v))).join('')}</div>${terms.length ? `<div class="sub-group" style="padding:10px 0 4px 8px">Internship term</div><div class="opts">${terms.map(([v, n]) => opt('terms', v, v, n, f.terms.includes(v))).join('')}</div>` : ''}`)); }
+    parts.push(sec('deg', 'Degree & term', [triNames('degrees'), triNames('terms')].filter(Boolean).join(', '), `<div class="sub-group" style="padding:0 0 4px 8px">Accepts</div><div class="opts">${DEGREES.map(v => opt('degrees', v, v, dc.get(v) || 0, f.degrees.includes(v))).join('')}</div>${terms.length ? `<div class="sub-group" style="padding:10px 0 4px 8px">Internship term</div><div class="opts">${terms.map(([v, n]) => opt('terms', v, v, n, f.terms.includes(v))).join('')}</div>` : ''}`)); }
   // company
   { const sc = open('co') ? countsFor('fundStages', j => j.fundStage) : new Map();
-    parts.push(sec('co', 'Company', [f.fundedOnly && 'funded', ...f.fundStages, f.excludeCompanies.length && `${f.excludeCompanies.length} hidden`].filter(Boolean).join(', '), `<label class="mini-check" style="margin:0 0 8px"><input type="checkbox" data-bool="fundedOnly" ${f.fundedOnly ? 'checked' : ''}>Recently funded only</label><div class="opts">${FUND_STAGES.map(v => opt('fundStages', v, v, sc.get(v) || 0, f.fundStages.includes(v))).join('')}</div>
+    parts.push(sec('co', 'Company', [f.fundedOnly && 'funded', triNames('fundStages'), f.excludeCompanies.length && `${f.excludeCompanies.length} hidden`].filter(Boolean).join(', '), `<label class="mini-check" style="margin:0 0 8px"><input type="checkbox" data-bool="fundedOnly" ${f.fundedOnly ? 'checked' : ''}>Recently funded only</label><div class="opts">${FUND_STAGES.map(v => opt('fundStages', v, v, sc.get(v) || 0, f.fundStages.includes(v))).join('')}</div>
       ${f.excludeCompanies.length ? `<div class="sub-group" style="padding:10px 0 4px 6px">Hidden companies</div><div class="tokens" style="margin:0">${f.excludeCompanies.map(c => `<span class="chip"><span class="v">${esc(c)}</span><button data-unhide="${esc(c)}">${ic('x')}</button></span>`).join('')}</div>` : ''}`)); }
   // skills
   { const c = open('skills') ? countsFor('skills', j => j.skills.map(skillN)) : new Map();
-    const list = [...c].sort((a, b) => b[1] - a[1]).slice(0, 300); for (const x of f.skills) if (!c.has(x)) list.unshift([x, 0]);
+    const list = [...c].sort((a, b) => b[1] - a[1]).slice(0, 300); for (const x of [...f.skills, ...f.notSkills]) if (!c.has(x)) list.unshift([x, 0]);
     // Technical skills first, grouped; general words ("Sales", "Operations") sit at the bottom, quieter.
-    const all = [...c].sort((a, b) => b[1] - a[1]); for (const x of f.skills) if (!c.has(x)) all.unshift([x, 0]);
+    const all = [...c].sort((a, b) => b[1] - a[1]); for (const x of [...f.skills, ...f.notSkills]) if (!c.has(x)) all.unshift([x, 0]);
     const groups = new Map(SKILL_GROUPS.map(g => [g, []]));
-    for (const [v, n] of all) { const gi = skillInfo(v).group; const g = groups.get(gi) || groups.get('Tools & practices'); if (g.length < (gi === 'General' ? 30 : 60) || f.skills.includes(v)) g.push([v, n]); }
+    for (const [v, n] of all) { const gi = skillInfo(v).group; const g = groups.get(gi) || groups.get('Tools & practices'); if (g.length < (gi === 'General' ? 30 : 60) || f.skills.includes(v) || f.notSkills.includes(v)) g.push([v, n]); }
     const mineN = (profile().skills || []).length;
-    parts.push(sec('skills', 'Skills', f.skills.length ? `${f.skills.length} · ${f.skillsAll ? 'all' : 'any'}` : '', `<div class="seg full" data-seg="skillsAll" style="margin-bottom:8px"><button data-v="any" class="${!f.skillsAll ? 'on' : ''}">Has any</button><button data-v="all" class="${f.skillsAll ? 'on' : ''}">Has all</button></div><div class="presets"><button data-myskills title="${mineN ? 'Tick every technical skill on your profile' : 'Add skills to your profile first (Settings)'}">My skills</button><button data-noskills>Clear</button></div><input class="fs-search" data-search="skills" placeholder="Filter skills…"><div class="scroll-opts opts" data-list="skills">${[...groups].filter(([, l]) => l.length).map(([g, l]) => `<div class="sub-group${g === 'General' ? ' gen' : ''}">${g === 'General' ? 'General, not technical' : esc(g)}</div>` + l.map(([v, n]) => opt('skills', v, v, n, f.skills.includes(v))).join('')).join('')}</div>`)); }
+    parts.push(sec('skills', 'Skills', [f.skills.length && `${f.skills.length} · ${f.skillsAll ? 'all' : 'any'}`, f.notSkills.length && `${f.notSkills.length} out`].filter(Boolean).join(', '), `<div class="seg full" data-seg="skillsAll" style="margin-bottom:8px"><button data-v="any" class="${!f.skillsAll ? 'on' : ''}">Has any</button><button data-v="all" class="${f.skillsAll ? 'on' : ''}">Has all</button></div><div class="presets"><button data-myskills title="${mineN ? 'Tick every technical skill on your profile' : 'Add skills to your profile first (Settings)'}">My skills</button><button data-noskills>Clear</button></div><input class="fs-search" data-search="skills" placeholder="Filter skills…"><div class="scroll-opts opts" data-list="skills">${[...groups].filter(([, l]) => l.length).map(([g, l]) => `<div class="sub-group${g === 'General' ? ' gen' : ''}">${g === 'General' ? 'General, not technical' : esc(g)}</div>` + l.map(([v, n]) => opt('skills', v, v, n, f.skills.includes(v))).join('')).join('')}</div>`)); }
   // sources
   { const c = open('src') ? countsFor('sources', j => j.sources.map(s => s.source)) : new Map();
     const srcs = (S.meta?.sources || []).filter(s => s.kind === 'jobs');
-    parts.push(sec('src', 'Source', f.sources.length ? `${f.sources.length} selected` : f.multiSource ? '2+ sources' : '', `<label class="mini-check" style="margin:0 0 8px"><input type="checkbox" data-bool="multiSource" ${f.multiSource ? 'checked' : ''}>Seen on 2+ sources</label><div class="opts">${srcs.map(s => opt('sources', s.id, s.name, c.get(s.id) || 0, f.sources.includes(s.id))).join('')}</div>`)); }
+    parts.push(sec('src', 'Source', triSum('sources') || (f.multiSource ? '2+ sources' : ''), `<label class="mini-check" style="margin:0 0 8px"><input type="checkbox" data-bool="multiSource" ${f.multiSource ? 'checked' : ''}>Seen on 2+ sources</label><div class="opts">${srcs.map(s => opt('sources', s.id, s.name, c.get(s.id) || 0, f.sources.includes(s.id))).join('')}</div>`)); }
   // keywords + misc
-  parts.push(sec('kw', 'More', [f.excludeQ && 'keywords', f.hideAgencies && 'no agencies', f.hasContact && 'has email', f.hideTracked && 'hide tracked'].filter(Boolean).join(', '), `<label class="kw-label">Hide roles mentioning<textarea id="exQ" rows="2" placeholder="senior, staff, clearance">${esc(f.excludeQ)}</textarea></label>
+  parts.push(sec('kw', 'More', [(f.includeQ || f.excludeQ) && 'keywords', f.hideAgencies && 'no agencies', f.hasContact && 'has email', f.hideTracked && 'hide tracked'].filter(Boolean).join(', '), `<label class="kw-label">Only roles mentioning<textarea id="inQ" rows="2" placeholder="python, react">${esc(f.includeQ)}</textarea></label>
+    <label class="kw-label">Hide roles mentioning<textarea id="exQ" rows="2" placeholder="senior, staff, clearance">${esc(f.excludeQ)}</textarea></label>
+    <p class="tri-help" style="margin:-6px 0 12px 2px">Separate words with commas. Both read the whole posting, and a word also finds its plurals (“citizen” finds citizens, citizenship). Words can’t tell “required” from “not required”: for citizenship or clearance, exclude <b>Citizens / clearance only</b> under Visa instead.</p>
     <label class="mini-check"><input type="checkbox" data-bool="hideAgencies" ${f.hideAgencies ? 'checked' : ''}>Hide recruiters and re-posted roles</label>
     <label class="mini-check"><input type="checkbox" data-bool="hasContact" ${f.hasContact ? 'checked' : ''}>Has a contact email</label>
     <label class="mini-check"><input type="checkbox" data-bool="hideTracked" ${f.hideTracked ? 'checked' : ''}>Not in my pipeline yet</label>`));
@@ -527,7 +556,12 @@ function wireSheet() {
     d.open ? S.openSecs.add(id) : S.openSecs.delete(id); ls.set('lk2.secs', [...S.openSecs]);
     if (d.open) renderSheetDebounced();
   }));
-  $$('input[data-k]', body).forEach(cb => cb.onchange = () => { const k = cb.dataset.k; setFilters({ [k]: cb.checked ? [...S.filters[k], cb.value] : S.filters[k].filter(x => x !== cb.value) }); });
+  const cycle = el => { const k = el.dataset.k, v = el.dataset.v, nk = NOT_KEY[k], f = S.filters;
+    if (f[k].includes(v)) setFilters({ [k]: f[k].filter(x => x !== v), [nk]: [...f[nk], v] });          // included -> excluded
+    else if (f[nk].includes(v)) setFilters({ [nk]: f[nk].filter(x => x !== v) });                       // excluded -> cleared
+    else setFilters({ [k]: [...f[k], v] }); };                                                            // cleared  -> included
+  $$('[data-k]', body).forEach(el => { el.onclick = () => cycle(el); el.onkeydown = e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); cycle(el); } }; });
+  $('#inQ')?.addEventListener('input', debounce(e => setFilters({ includeQ: e.target.value }), 350));
   $$('input[data-bool]', body).forEach(cb => cb.onchange = () => setFilters({ [cb.dataset.bool]: cb.checked }));
   $$('[data-seg="age"] button', body).forEach(b => b.onclick = () => setFilters({ age: b.dataset.v }));
   $$('[data-seg="skillsAll"] button', body).forEach(b => b.onclick = () => setFilters({ skillsAll: b.dataset.v === 'all' }));
@@ -557,7 +591,7 @@ function wireSheet() {
   const pr = $('#payR');
   if (pr) { pr.oninput = () => { $('#payV').textContent = +pr.value ? `$${pr.value}k` : 'any'; $('#payFill').style.width = `${pr.value / 3}%`; }; pr.onchange = () => setFilters({ payMin: +pr.value || null }); }
   $('#payUnknown')?.addEventListener('change', e => setFilters({ payUnknown: e.target.checked }));
-  $$('[data-visa]', body).forEach(b => b.onclick = () => setFilters({ visa: b.dataset.visa === 'need' ? ['Sponsors visa', 'Not stated'] : b.dataset.visa === 'sponsor' ? ['Sponsors visa'] : [] }));
+  $$('[data-visa]', body).forEach(b => b.onclick = () => setFilters({ visa: b.dataset.visa === 'need' ? ['Sponsors visa', 'Not stated'] : b.dataset.visa === 'sponsor' ? ['Sponsors visa'] : [], notVisa: [] }));
   $('#exQ')?.addEventListener('input', debounce(e => setFilters({ excludeQ: e.target.value }), 350));
   $$('[data-unhide]', body).forEach(b => b.onclick = () => setFilters({ excludeCompanies: S.filters.excludeCompanies.filter(c => c !== b.dataset.unhide) }));
 }
@@ -784,22 +818,23 @@ async function renderSources() {
   const vals = [d.sourceCount, d.boards, today, totalUnique];
   $$('#discTiles b').forEach((b, i) => tickTo(b, vals[i]));
   $('#tileSub0').textContent = `${d.lists.filter(l => !l.disabled).length} found automatically`;
-  $('#tileSub1').textContent = 'checked every 1–60 min';
+  $('#tileSub1').textContent = { saver: 'checked every 30 min–2 h', slow: 'checked every 6–24 h' }[d.pace] || 'checked every 1–60 min';
   $('#tileSub2').textContent = 'new boards and lists'; $('#tileSub2').className = today ? 'up' : '';
   $('#tileSub3').textContent = 'duplicates removed';
   const tiers = Object.entries(d.tiers).filter(([, n]) => n);
   $('#tierBar').innerHTML = tiers.map(([k, n]) => `<div style="flex:${n};background:${TIER_COLORS[k]}" title="${k}: ${n}"></div>`).join('');
-  $('#tierLegend').innerHTML = tiers.map(([k, n]) => `<span><i style="background:${TIER_COLORS[k]}"></i>${k} · ${fmt(n)}</span>`).join('');
+  $('#tierLegend').innerHTML = tiers.map(([k, n]) => `<span><i style="background:${TIER_COLORS[k]}"></i>${d.tierLabels?.[k] || k} · ${fmt(n)}</span>`).join('');
   const via = Object.entries(d.byVia).sort((a, b) => b[1] - a[1]); const max = Math.max(1, ...via.map(v => v[1]));
   $('#viaList').innerHTML = via.map(([k, n]) => `<div class="barrow"><span>${esc(k)}</span><div class="bt"><div style="width:${100 * n / max}%"></div></div><b>${fmt(n)}</b></div>`).join('');
   $('#discLog').innerHTML = d.log.length ? d.log.map(l => `<li><time>${ago(Date.parse(l.at))}</time><div><span class="k ${l.kind}">${l.kind === 'board' ? 'board' : l.kind === 'source' ? 'new list' : 'retired'}</span>${esc(l.text)} <small>via ${esc(l.via)}</small></div></li>`).join('') : '<li><time></time><div class="muted">Discoveries will appear here.</div></li>';
   // sources table
   const yieldOf = id => d.yield.find(y => y.id === id) || { seen: 0, unique: 0 };
   const srcRows = (S.meta?.sources || []).map(s => { const y = yieldOf(s.id); const pct = y.seen ? Math.round(100 * y.unique / y.seen) : 0; const state = s.running ? '<span class="state live">Polling</span>' : s.ok === false ? `<span class="state bad" title="${esc(s.error || '')}">Error</span>` : s.at ? '<span class="state ok">OK</span>' : '<span class="state">Queued</span>';
-    return `<tr title="${esc(s.trust || '')}"><td>${s.home ? `<a class="u" href="${esc(s.home)}" target="_blank" rel="noreferrer">${esc(s.name)}</a>` : esc(s.name)}${s.dynamic ? ' <span class="tag good" title="Lookout found this list on its own">auto</span>' : ''}</td><td>${state}</td><td class="mono muted">${s.every >= 3600 ? Math.round(s.every / 3600) + 'h' : s.every >= 60 ? Math.round(s.every / 60) + 'm' : s.every + 's'}</td><td class="mono muted">${s.at ? ago(Date.parse(s.at)) : '—'}</td><td class="num">${s.id === 'ats' || s.id === 'funding' ? fmt(s.totalAdded || s.added || 0) : `<span class="yieldbar"><span style="width:${pct}%"></span></span>${fmt(y.unique)}`}</td></tr>`; }).join('');
-  $('#srcTable').innerHTML = `<thead><tr><th>Source</th><th>Status</th><th>Every</th><th>Last check</th><th class="num">Roles found first</th></tr></thead><tbody>${srcRows}</tbody>`;
+    return `<tr class="${s.off ? 'src-off' : ''}" title="${esc(s.trust || '')}"><td>${s.id === 'ats' || s.kind !== 'jobs' ? '' : `<input type="checkbox" class="switch" data-src="${esc(s.id)}" ${s.off ? '' : 'checked'} title="${s.off ? 'Switched off' : 'Checking'}">`}</td><td>${s.home ? `<a class="u" href="${esc(s.home)}" target="_blank" rel="noreferrer">${esc(s.name)}</a>` : esc(s.name)}${s.dynamic ? ' <span class="tag good" title="Lookout found this list on its own">auto</span>' : ''}</td><td>${state}</td><td class="mono muted">${s.every >= 3600 ? Math.round(s.every / 3600) + 'h' : s.every >= 60 ? Math.round(s.every / 60) + 'm' : s.every + 's'}</td><td class="mono muted">${s.at ? ago(Date.parse(s.at)) : '—'}</td><td class="num">${s.id === 'ats' || s.id === 'funding' ? fmt(s.totalAdded || s.added || 0) : `<span class="yieldbar"><span style="width:${pct}%"></span></span>${fmt(y.unique)}`}</td></tr>`; }).join('');
+  $('#srcTable').innerHTML = `<thead><tr><th style="width:44px">On</th><th>Source</th><th>Status</th><th>Every</th><th>Last check</th><th class="num">Roles found first</th></tr></thead><tbody>${srcRows}</tbody>`;
   $('#watchList').innerHTML = (S.meta?.watch || []).map(w => `<span class="chip"><span class="k">${esc(w.provider)}</span><span class="v">${esc(w.name)}</span><button data-unwatch="${w.id}">${ic('x')}</button></span>`).join('');
   hydrateIcons($('#v-sources'));
+  $$('[data-src]').forEach(c => c.onchange = async () => { await api('/api/sources/toggle', { method: 'POST', body: JSON.stringify({ id: c.dataset.src, on: c.checked }) }); await loadMeta(); renderSources(); });
   $$('[data-unwatch]').forEach(b => b.onclick = async () => { await api('/api/watch/' + b.dataset.unwatch, { method: 'DELETE' }); await loadMeta(); renderSources(); });
   $('#nSources').textContent = fmt(d.boards);
 }
@@ -815,7 +850,7 @@ function renderSettings() {
   f.ntfyTopic.value = s.ntfyTopic || ''; f.ntfyServer.value = s.ntfyServer || 'https://ntfy.sh'; f.ntfyToken.value = s.hasToken ? '••••' : ''; f.quietHours.value = s.quietHours || ''; f.desktopNotify.checked = !!s.desktopNotify;
   if (document.activeElement !== $('#liForm').searches) $('#liForm').searches.value = (s.linkedinSearches || []).map(x => [x.keywords, x.location || 'Worldwide', x.remote ? 'remote' : ''].filter(Boolean).join(' | ')).join('\n');
   if (!$('#topicIdea').textContent) $('#topicIdea').textContent = 'lookout-' + crypto.getRandomValues(new Uint32Array(2)).reduce((a, n) => a + n.toString(36), '');
-  renderProfile();
+  renderProfile(); renderSourcesCard(); renderAccess();
   $('#alertNote').textContent = s.ntfyTopic ? '' : 'Phone not connected yet'; syncAppearance();
   const bl = S.meta.blockedCompanies || [];
   $('#blockedList').innerHTML = bl.length ? bl.map(c => `<span class="chip"><span class="v">${esc(c)}</span><button data-unblock="${esc(c)}" title="Unblock">${ic('x')}</button></span>`).join('') : '<span class="muted small">None</span>';
@@ -971,18 +1006,84 @@ function maybeWelcome() {
 
 // "My skills" / "Clear" in the Skills filter
 $('#sheetBody').addEventListener('click', e => {
-  if (e.target.closest('[data-noskills]')) return setFilters({ skills: [] });
+  if (e.target.closest('[data-noskills]')) return setFilters({ skills: [], notSkills: [] });
   if (!e.target.closest('[data-myskills]')) return;
   const mine = (profile().skills || []).filter(s => skillInfo(s).tech);
   if (!mine.length) { toast('Your profile has no skills yet', { action: ['Add them', () => { closeSheet(); location.hash = '#settings'; }] }); return; }
   setFilters({ skills: mine, skillsAll: false });
 });
 
+// ───────────────────────────────────────────── browser extension and other devices
+let access = null, keyShown = false;
+async function renderAccess() {
+  try { access = await api('/api/access'); } catch { return; }
+  $('#extFolder').textContent = access.extFolder;
+  $('#extKey').textContent = keyShown ? access.extKey : '•'.repeat(24);
+  $('#extStatus').textContent = access.extSeen ? `Paired · last used ${agoLong(Date.parse(access.extSeen))}` : 'Not paired yet';
+  $('#devCard').hidden = !access.lan;
+  $('#devLinks').innerHTML = access.deviceLinks.map(u => `<span class="chip"><span class="v" style="max-width:none">${esc(u.replace(/key=.*/, 'key=…'))}</span><button data-copylink="${esc(u)}" title="Copy link">${ic('copy')}</button></span>`).join('') || '<span class="muted small">No network address found.</span>';
+  hydrateIcons($('#devCard'));
+  $$('[data-copylink]').forEach(b => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copylink); toast('Link copied. Open it on your phone', { ms: 3000 }); });
+}
+$('#extShow').onclick = () => { keyShown = !keyShown; $('#extShow').textContent = keyShown ? 'Hide' : 'Show'; renderAccess(); };
+$('#extCopy').onclick = async () => { if (!access) await renderAccess(); navigator.clipboard?.writeText(access.extKey); $('#extMsg').textContent = 'Pairing key copied. Paste it into the extension’s options.'; };
+$('#extRotate').onclick = async () => { await api('/api/access/rotate', { method: 'POST', body: JSON.stringify({ which: 'ext' }) }); $('#extMsg').textContent = 'New key made. Paste it into the extension again.'; renderAccess(); };
+$('#devRotate').onclick = async () => { await api('/api/access/rotate', { method: 'POST', body: JSON.stringify({ which: 'device' }) }); toast('New link made. Devices that used the old one are signed out.'); renderAccess(); };
+
+// ───────────────────────────────────────────── sources: discovery, pace, shared lists
+const PACE_NOTE = {
+  auto: 'Busy boards every 1 to 3 minutes, quiet ones up to hourly. Best for applying in the first hour.',
+  saver: 'Every 30 minutes to 2 hours. Far fewer requests and less battery, but you hear about roles later, and LinkedIn alerts (only sent for roles under 2 hours old) become rare.',
+  slow: 'Every 6 to 24 hours: a daily round-up. Phone alerts will mostly arrive too late to be first.',
+};
+function renderSourcesCard() {
+  const s = S.meta.settings; const info = S.meta.sourceInfo || {};
+  $('#discoverToggle').checked = s.discover !== false;
+  $$('#paceSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === (s.pace || 'auto')));
+  $('#paceNote').textContent = PACE_NOTE[s.pace || 'auto'];
+  $('#srcSummary').textContent = `${fmt(info.boards || 0)} boards · ${fmt(info.lists || 0)} lists`;
+  const st = info.starter;
+  $('#starterRow').hidden = !st;
+  if (st) { const left = st.boards - st.have; $('#starterNote').textContent = left > 0 ? `${fmt(st.boards)} boards and ${st.lists} lists that were posting roles recently${st.have ? `; you have ${fmt(st.have)} of them` : ''}` : `All ${fmt(st.boards)} boards are already in yours`; $('#starterAdd').disabled = left <= 0; }
+}
+const srcSay = t => { $('#srcMsg').textContent = t; };
+const added = r => `${r.name === 'starter list' ? 'Starter list' : `“${r.name}”`}: added ${fmt(r.added)} board${r.added === 1 ? '' : 's'}${r.lists ? ` and ${r.lists} list${r.lists === 1 ? '' : 's'}` : ''}${r.had ? `, ${fmt(r.had)} you already had` : ''}${r.skipped ? `, ${r.skipped} not understood` : ''}.`;
+$('#discoverToggle').onchange = async e => { await api('/api/settings', { method: 'POST', body: JSON.stringify({ discover: e.target.checked }) }); await loadMeta(); renderSourcesCard(); srcSay(e.target.checked ? 'Lookout will add new boards and lists as it finds them.' : 'Lookout will only use the boards and lists you have now, plus any you add.'); };
+$$('#paceSeg button').forEach(b => b.onclick = async () => { await api('/api/settings', { method: 'POST', body: JSON.stringify({ pace: b.dataset.v }) }); await loadMeta(); renderSourcesCard(); });
+$('#starterAdd').onclick = async () => { srcSay('Adding…'); try { const r = await api('/api/sources/starter', { method: 'POST', body: '{}' }); await loadMeta(); renderSourcesCard(); srcSay(added(r)); } catch (e) { srcSay(e.message); } };
+$('#importBtn').onclick = () => $('#importFile').click();
+$('#importFile').onchange = async e => {
+  const file = e.target.files[0]; e.target.value = ''; if (!file) return;
+  if (file.size > 8e6) return srcSay('That file is too large to be a sources list.');
+  srcSay('Adding…');
+  try { const r = await api('/api/sources/import', { method: 'POST', body: JSON.stringify({ text: await file.text() }) }); await loadMeta(); renderSourcesCard(); srcSay(added(r)); } catch (err) { srcSay(err.message); }
+};
+$('#exportBtn').onclick = () => { $('#exportAll').textContent = `${fmt(S.meta.sourceInfo?.boards || 0)} boards and ${S.meta.sourceInfo?.lists || 0}`; $('#exportDlg').showModal(); };
+$('#exportCancel').onclick = () => $('#exportDlg').close('cancel');
+$('#exportDlg').addEventListener('close', async () => {
+  if ($('#exportDlg').returnValue !== 'ok') return;
+  const f = $('#exportForm'); const name = f.name.value.trim() || 'My Lookout sources';
+  try {
+    const data = await api(`/api/sources/export?scope=${f.scope.value}&name=${encodeURIComponent(name)}`);
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }));
+    a.download = `${name.replace(/[^\w -]+/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'lookout-sources'}.json`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    srcSay(`Saved ${fmt(data.boards.length)} boards and ${data.lists.length} lists to ${a.download}.`);
+  } catch (e) { srcSay(e.message); }
+});
+$('#resetBtn').onclick = () => { $('#resetCount').textContent = `${fmt(S.meta.sourceInfo?.boards || 0)} boards and ${S.meta.sourceInfo?.lists || 0} lists`; $('#resetDlg').showModal(); };
+$('#resetCancel').onclick = () => $('#resetDlg').close('cancel');
+$('#resetDlg').addEventListener('close', async () => {
+  if ($('#resetDlg').returnValue !== 'ok') return;
+  try { const r = await api('/api/sources/reset', { method: 'POST', body: JSON.stringify({ stopDiscovery: $('#resetForm').stop.checked }) }); await loadMeta(); renderSourcesCard(); srcSay(`Removed ${fmt(r.removed)} boards and ${r.lists} lists.${r.kept ? ` Kept ${r.kept} you watch by hand.` : ''} Add the starter list or import one to begin again.`); } catch (e) { srcSay(e.message); }
+});
+
 // ───────────────────────────────────────────── theme, routing, sidebar
 function toggleTheme() { const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'); const next = cur === 'light' ? 'dark' : 'light'; setTheme(next); }
 { const t = ls.get('lk2.theme', null); if (t) document.documentElement.dataset.theme = t; }
 function route() {
-  const v = (location.hash || '#jobs').slice(1); S.view = ['jobs', 'signals', 'pipeline', 'sources', 'settings'].includes(v) ? v : 'jobs';
+  let v = (location.hash || '#jobs').slice(1);
+  if (v.startsWith('job:')) { const id = decodeURIComponent(v.slice(4)); v = 'jobs'; history.replaceState(null, '', '#jobs'); if (S.meta) setTimeout(() => select(id), 50); else S.openOnLoad = id; }
+  S.view = ['jobs', 'signals', 'pipeline', 'sources', 'settings'].includes(v) ? v : 'jobs';
   $$('.view').forEach(el => el.classList.toggle('hidden', el.id !== 'v-' + S.view));
   $$('.nav a').forEach(a => a.classList.toggle('on', a.dataset.view === S.view));
   closeSide(); if (!S.meta) return;
@@ -1012,6 +1113,7 @@ async function resync() {
   try {
     const [{ jobs }] = await Promise.all([api('/api/jobs'), loadMeta()]);
     const had = new Set(S.jobs.map(j => j.id)); S.jobs = jobs; lastSync = Date.now(); evCache = null;
+    if (mentionCache.size) await syncMentions(jobs.filter(j => !had.has(j.id)).map(j => j.id));
     const c = ctx(); const fresh = jobs.filter(j => !had.has(j.id) && matches(j, S.filters, c)).map(j => j.id);
     const pend = [...new Set([...S.pending, ...fresh])];
     if (S.view === 'jobs' && list.scrollTop < 20 && !$('#sheet').classList.contains('open')) renderList(new Set(pend.slice(0, 40)));
@@ -1033,6 +1135,7 @@ function connect() {
     const { added } = JSON.parse(e.data); const ids = new Set(S.jobs.map(j => j.id));
     const fresh = added.filter(j => !ids.has(j.id)); if (!fresh.length) return;
     S.jobs = [...fresh, ...S.jobs];
+    if (mentionCache.size) syncMentions(fresh.map(j => j.id)).then(ok => { if (ok) { renderList(); deferred(); } });
     const c = ctx(); const visible = fresh.filter(j => matches(j, S.filters, c)).map(j => j.id);
     S.pending.push(...visible);
     if (S.view === 'jobs' && list.scrollTop < 20 && S.pending.length && S.pending.length < 25 && !$('#sheet').classList.contains('open')) { const set = new Set(S.pending); renderList(set); }
@@ -1048,7 +1151,7 @@ function connect() {
   es.addEventListener('status', e => { const st = JSON.parse(e.data); const s = S.meta?.sources.find(x => x.id === st.id); if (s) Object.assign(s, st); renderEngine(); });
   es.addEventListener('funding', () => { if (S.view === 'signals') renderSignals(); });
 }
-async function loadMeta() { S.meta = await api('/api/meta'); renderNav(); renderWho(); }
+async function loadMeta() { S.meta = await api('/api/meta'); renderNav(); renderWho(); syncMentions().then(ok => ok && S.jobs.length && refreshJobs()); }
 
 async function init() {
   hydrateIcons();
@@ -1058,6 +1161,7 @@ async function init() {
   const v = S.meta.filterSets.find(x => x.id === S.activeView); if (v) $('#viewTitle').textContent = v.name; else S.activeView = null;
   const { jobs } = await api('/api/jobs'); S.jobs = jobs;
   refreshJobs(); route(); renderEngine(); connect(); maybeWelcome();
+  if (S.openOnLoad) { select(S.openOnLoad); S.openOnLoad = null; }
   api('/api/signals').then(r => $('#nSignals').textContent = fmt(r.companies.length)).catch(() => { });
   api('/api/discovery').then(d => $('#nSources').textContent = fmt(d.boards)).catch(() => { });
   setInterval(async () => { try { await loadMeta(); renderViews(); if (S.view === 'sources') renderSources(); } catch { /* scanner unreachable; the watchdog reconnects */ } }, 30000);

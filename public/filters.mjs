@@ -25,14 +25,18 @@ export const DEGREES = ["Bachelor's", "Master's", 'PhD', 'No degree required'];
 export const FUND_STAGES = ['YC', 'Pre-seed / Seed', 'Series A', 'Series B+', 'Raised (undisclosed)'];
 
 export const EMPTY_FILTERS = {
-  q: '', excludeQ: '', age: 'all',
+  q: '', excludeQ: '', includeQ: '', age: 'all',
   fields: [], excludeFields: [], specialties: [], stages: [],
   expMin: null, expMax: null, expUnknown: true,
   visa: [], workModes: [], countries: [], degrees: [],
   payMin: null, payUnknown: true, terms: [],
   fundedOnly: false, fundStages: [], hasContact: false, hideTracked: false,
   sources: [], multiSource: false, skills: [], skillsAll: false, excludeCompanies: [], hideAgencies: false,
+  // the "exclude" side of every option list (Field keeps its older name, excludeFields)
+  notSpecialties: [], notStages: [], notVisa: [], notWorkModes: [], notCountries: [], notDegrees: [], notTerms: [], notFundStages: [], notSkills: [], notSources: [],
 };
+/** Option list -> the key holding its excluded values. Click once to include, again to exclude, again to clear. */
+export const NOT_KEY = { fields: 'excludeFields', specialties: 'notSpecialties', stages: 'notStages', visa: 'notVisa', workModes: 'notWorkModes', countries: 'notCountries', degrees: 'notDegrees', terms: 'notTerms', fundStages: 'notFundStages', skills: 'notSkills', sources: 'notSources' };
 
 export function normalizeFilters(f = {}) {
   const out = { ...EMPTY_FILTERS, ...f };
@@ -94,6 +98,13 @@ function wordRe(term) {
   return re;
 }
 const has = (hay, term) => wordRe(term).test(hay);
+/** Does this text mention the word (also its plural and -ing/-ed/-ship forms)? */
+export const mentionsIn = (text, term) => wordRe(term).test(String(text || ''));
+/** The same check against what the list has for a role: title, company, place, role, skills and the opening lines. */
+export const mentionsInSummary = (job, term) => has(hayOf(job), term);
+const wordsOf = s => String(s || '').toLowerCase().split(/[,\n]/).map(x => x.trim()).filter(Boolean);
+/** Every word a filter set searches whole postings for, for fetching full-text matches ahead of time. */
+export const filterWords = f => [...new Set([...wordsOf(f?.excludeQ), ...wordsOf(f?.includeQ)])];
 const SKILL_ALIAS = { golang: 'go', js: 'javascript', ts: 'typescript', k8s: 'kubernetes', postgres: 'postgresql', 'node': 'node.js', nodejs: 'node.js', reactjs: 'react', 'react.js': 'react', py: 'python', llm: 'llms', 'gcp': 'gcp', 'ml': 'machine learning' };
 const skillKey = s => { const k = String(s).toLowerCase().trim(); return SKILL_ALIAS[k] || k; };
 export const normCo = s => String(s || '').toLowerCase().replace(/\b(inc|llc|ltd|corp|co|gmbh|pvt|limited)\b\.?/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
@@ -140,12 +151,25 @@ function checks(f, ctx) {
     const want = f.skills.map(skillKey);
     add('skills', j => { const have = new Set((j.skills || []).map(s => skillKey(skillName(s)))); return f.skillsAll ? want.every(s => have.has(s)) : want.some(s => have.has(s)); });
   }
+  // Excluded options. Single-valued facets drop a role that has the value; multi-valued ones (degree, term,
+  // source) drop it only when every value it has is excluded, since the role is still open to you otherwise.
+  { const not = k => new Set(f[k] || []);
+    if (f.notSpecialties.length) { const x = not('notSpecialties'); add('specialties', j => !x.has(j.specialty)); }
+    if (f.notStages.length) { const x = not('notStages'); add('stages', j => !stagesOf(j).some(s => x.has(s))); }
+    if (f.notVisa.length) { const x = not('notVisa'); add('visa', j => !x.has(j.visa || 'Not stated')); }
+    if (f.notWorkModes.length) { const x = not('notWorkModes'); add('workModes', j => !x.has(j.workMode || 'Not stated')); }
+    if (f.notCountries.length) { const x = not('notCountries'); add('countries', j => !x.has(j.country)); }
+    if (f.notDegrees.length) { const x = not('notDegrees'); add('degrees', j => !(j.degrees?.length && j.degrees.every(d => x.has(d)))); }
+    if (f.notTerms.length) { const x = not('notTerms'); add('terms', j => !(j.terms?.length && j.terms.every(t => x.has(t)))); }
+    if (f.notFundStages.length) { const x = not('notFundStages'); add('fundStages', j => !x.has(fundStageOf(j))); }
+    if (f.notSkills.length) { const x = new Set(f.notSkills.map(skillKey)); add('skills', j => !(j.skills || []).some(s => x.has(skillKey(skillName(s))))); }
+    if (f.notSources.length) { const x = not('notSources'); add('sources', j => !(j.sources?.length && j.sources.every(s => x.has(s.source)))); } }
   if (f.hideTracked) add('hideTracked', j => !ctx.tracking?.[j.id]);
   if (!f.showHidden) add('_hidden', j => { const t = ctx.tracking?.[j.id]; return !(t?.hidden || t?.status === 'hidden'); });
   if (ctx.blocked?.size) add('_blocked', j => !ctx.blocked.has(normCo(j.company)));
   if (ctx.profile && ctx.profile.strictFit !== false && typeof ctx.profile.yearsExp === 'number') add('_fit', j => !overReach(j, ctx.profile));
-  if (f.q || f.excludeQ) {
-    const clauses = textClauses(f.q); const ex = f.excludeQ.toLowerCase().split(/[,\n]/).map(s => s.trim()).filter(Boolean);
+  if (f.q) {
+    const clauses = textClauses(f.q);
     add('q', j => {
       const hay = hayOf(j);
       for (const raw of clauses) {
@@ -153,10 +177,13 @@ function checks(f, ctx) {
         const alts = raw.split('|').map(x => x.replace(/"/g, '')).filter(Boolean);
         if (alts.length && !alts.some(a => has(hay, a))) return false;
       }
-      for (const raw of ex) if (has(hay, raw)) return false;
       return true;
     });
   }
+  // Words to require or rule out are looked for in the whole posting. The server can read every description;
+  // the app is handed those answers as ctx.mentions, and falls back to the role's summary for anything newer.
+  { const ex = wordsOf(f.excludeQ), inc = wordsOf(f.includeQ); const said = ctx.mentions || mentionsInSummary;
+    if (ex.length || inc.length) add('words', j => (!inc.length || inc.some(t => said(j, t))) && !ex.some(t => said(j, t))); }
   return out;
 }
 

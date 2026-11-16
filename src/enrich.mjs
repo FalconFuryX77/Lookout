@@ -1,7 +1,9 @@
 // Turns raw postings into structured, filterable records: skills, requirements, role type,
 // seniority, specialty/field, country, remote flag, salary, visa, years, pay.
 import { deepAttributes, payOf } from './taxonomy.mjs';
-import { SKILLS, SKILL_ALIASES as ALIASES } from '../public/skills.mjs';
+import { extractSkills, requirementLines } from '../public/skills.mjs';
+// skill and requirement reading live with the shared skill vocabulary, so the browser extension uses the same code
+export { extractSkills, requirementLines };
 
 /** Keep a pay string only if it parses as pay (or is clearly an Indian CTC/stipend we can't normalize). */
 export function cleanSalary(s, type) {
@@ -9,46 +11,6 @@ export function cleanSalary(s, type) {
   const t = String(s).trim().slice(0, 80);
   if (payOf(t, type === 'Internship')) return t;
   return /\d/.test(t) && /(lpa|lakh|crore|₹|ctc)/i.test(t) ? t : '';
-}
-
-const SHORT_AMBIGUOUS = new Set(['Recruiting', 'Analytics', 'Research', 'Design Systems', 'C', 'R', 'Go', 'Excel', 'Testing', 'Communication', 'Security', 'Growth', 'Operations', 'Finance', 'Sales', 'Marketing', 'Community', 'APIs', 'REST', 'Statistics', 'Networking']);
-const SKILL_INDEX = Object.entries(SKILLS).flatMap(([group, list]) => list.map(name => ({ name: ALIASES[name] || name, group, re: skillRegex(name) })));
-function skillRegex(name) {
-  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\ /g, '[\\s-]?');
-  if (name === 'C') return /(?:^|[\s,(/])C(?=[\s,)/;.]|$)(?![#+])/; // case-sensitive "C" language
-  if (name === 'R') return /(?:^|[\s,(/])R(?=[\s,)/;]|$)(?!&)/;
-  if (name === 'Go') return /(?:^|[\s,(/])(?:Go|Golang)(?=[\s,)/;.]|$)/;
-  return new RegExp(`(?:^|[^a-z0-9+#.])${esc}(?![a-z0-9+#])`, 'i');
-}
-
-export function extractSkills(text = '', title = '') {
-  const found = new Map();
-  const all = `${title}\n${text}`;
-  for (const s of SKILL_INDEX) {
-    if (found.has(s.name)) continue;
-    // ambiguous generic words only count when they are in the title or a requirements-like line
-    const hay = SHORT_AMBIGUOUS.has(s.name) && s.name.length > 2 ? `${title}\n${requirementLines(text).join('\n')}` : all;
-    if (s.re.test(hay)) found.set(s.name, s.group);
-  }
-  return [...found].map(([name, group]) => ({ name, group }));
-}
-
-const REQ_HEAD = /^(?:#+\s*)?(requirements?|qualifications?|what (?:you(?:'ll)? need|we(?:'re| are) looking for|you bring|we expect)|who you are|you (?:have|might be a fit|should have)|skills?(?: required| needed)?|must[- ]haves?|nice[- ]to[- ]haves?|bonus(?: points)?|preferred(?: qualifications)?|about you|ideal candidate|minimum qualifications|basic qualifications|eligibility)\b.*:?$/i;
-const NEXT_HEAD = /^(?:#+\s*)?(benefits|perks|what we offer|compensation|about us|about the company|why join|our values|how to apply|interview process|responsibilities|what you(?:'ll)? do|the role|equal opportunity|location)\b/i;
-
-/** Bullet-ish lines under Requirements / Qualifications style headings. */
-export function requirementLines(text = '') {
-  // Strip bullet markers and list numbering ("1." / "2)") but keep leading numbers that are content ("2 to 4 years").
-  const lines = String(text).split(/\n|(?:\s•\s)/).map(l => l.replace(/^\s*(?:[•\-*▪◦·]+|\d{1,2}[.)])\s*/, '').trim()).filter(Boolean);
-  const out = []; let on = false;
-  for (const l of lines) {
-    if (l.length < 70 && REQ_HEAD.test(l)) { on = true; continue; }
-    if (on && l.length < 60 && NEXT_HEAD.test(l)) { on = false; continue; }
-    if (/^[A-Z0-9 &/,:-]{3,40}$/.test(l) || /^(originally posted|apply (?:now|here)|requisition|req(?:uisition)? id)/i.test(l) || /requisition id/i.test(l)) continue; // section headers & footers
-    if (on && l.length > 6 && l.length < 400) out.push(l);
-    if (out.length >= 25) break;
-  }
-  return out;
 }
 
 // Student roles in the languages our sources actually post in (German, French, Dutch, Portuguese, Spanish).

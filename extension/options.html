@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lookout extension</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body class="page">
+<header class="top"><img src="icons/32.png" alt="" width="20" height="20"><b>Lookout extension</b></header>
+<main>
+  <p class="muted" style="margin:0 0 6px">Pairing lets the extension talk to the Lookout running on this computer. Nothing is sent anywhere else.</p>
+  <form id="form">
+    <label>Pairing key<input name="key" autocomplete="off" spellcheck="false" placeholder="From Lookout → Settings → Browser extension"></label>
+    <label>Lookout’s port<input name="port" type="number" min="1" max="65535" value="4173"></label>
+    <div class="acts"><button class="primary">Save and test</button></div>
+    <p class="msg" id="msg"></p>
+  </form>
+</main>
+<script type="module" src="options.js"></script>
+</body>
+</html>

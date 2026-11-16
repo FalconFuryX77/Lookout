@@ -2,6 +2,8 @@
 // Polls job sources + company ATS boards on short intervals, links funding news to companies,
 // deduplicates across sources, and pushes matches to your phone via ntfy.
 import http from 'node:http';
+import os from 'node:os';
+import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -15,12 +17,16 @@ import { discoverContacts, websiteFor, NOT_COMPANY_SITES } from './src/contacts.
 import { sendAlerts, testPush, resolveChannel } from './src/notify.mjs';
 import { DEFAULT_LINKEDIN_SEARCHES, LINKEDIN_ALERT_MAX_MIN } from './src/linkedin.mjs';
 import { resumeText, parseResume } from './src/resume.mjs';
-import { matches, effectiveTime, fundStageOf, normCo } from './public/filters.mjs';
+import { matches, effectiveTime, fundStageOf, normCo, mentionsIn, fit, overReach } from './public/filters.mjs';
+import { enrich } from './src/enrich.mjs';
 import { normCompany } from './src/dedupe.mjs';
 import { namedEmployer, sameRole, boardSlugs, linkRank, bestLink, isShortLink, followRedirects, REPOSTER } from './src/root.mjs';
 import { pool, domainOf, canonicalUrl, exportHttpValidators, importHttpValidators } from './src/util.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
+// "Only roles mentioning" and "Hide roles mentioning" read the whole posting, which only the scanner has.
+const fullText = j => `${j.title} ${j.company} ${j.location || ''} ${j.specialty || ''} ${(j.skills || []).map(x => x.name || x).join(' ')} ${j.description || ''}`;
+const fullMention = (j, t) => mentionsIn(fullText(j), t);
 const PORT = Number(process.env.PORT || 4173);
 const HOST = process.env.HOST || '127.0.0.1';
 const store = new Store(process.env.LOOKOUT_DATA || path.join(ROOT, 'data'));
@@ -29,6 +35,55 @@ const S = store.state;
 const catchUpUntil = store.repaired ? Date.now() + 30 * 60e3 : 0;
 store.state.settings.appUrl = `http://127.0.0.1:${PORT}`;
 S.settings.linkedinSearches ||= DEFAULT_LINKEDIN_SEARCHES;
+S.settings.discover ??= true;          // find new boards and lists on its own
+S.settings.pace ||= 'auto';            // auto | saver | slow
+S.settings.offSources ||= [];          // sources switched off by hand
+// ---------------------------------------------------------------- who may talk to the scanner
+// Lookout listens on this computer, so any web page open in your browser can try to reach it. Three rules:
+//  1. The request must be addressed to this computer by address (localhost / an IP), never by a domain
+//     name. That stops "DNS rebinding", where a website points its own domain at 127.0.0.1 to read your data.
+//  2. Changes must come from Lookout's own pages. A request another website's page sends is refused.
+//  3. Other devices (a phone on your Wi-Fi) and the browser extension need a key. Keys are made here and
+//     shown in Settings; they never leave this computer except where you paste them.
+S.settings.extKey ||= crypto.randomBytes(18).toString('base64url');    // pairs the browser extension
+S.settings.deviceKey ||= crypto.randomBytes(18).toString('base64url'); // opens Lookout on your other devices
+const IP_LITERAL = /^(?:\d{1,3}(?:\.\d{1,3}){3}|\[[0-9a-f:.]+\])$/i;
+const isLoopbackHost = h => ['127.0.0.1', 'localhost', '[::1]'].includes(h);
+const isLoopbackAddr = a => /^(?:::ffff:)?127\.|^::1$/.test(a || '');
+const hostOf = req => String(req.headers.host || '').toLowerCase().replace(/:\d+$/, '');
+const cookieKey = req => (String(req.headers.cookie || '').match(/(?:^|;\s*)lk_key=([\w-]+)/) || [])[1] || '';
+const bearer = req => (String(req.headers.authorization || '').match(/^Bearer\s+([\w-]+)$/i) || [])[1] || '';
+const sameKey = (a, b) => !!a && !!b && a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+/** null when the request may go ahead, otherwise [status, message]. */
+function guard(req, p, url) {
+  const host = hostOf(req);
+  if (!isLoopbackHost(host) && !(HOST !== '127.0.0.1' && IP_LITERAL.test(host))) return [403, 'Open Lookout at http://127.0.0.1:' + PORT];
+  const ext = p.startsWith('/api/ext/');
+  if (ext) { // the browser extension: its own origin, its own key, its own few endpoints
+    if (p === '/api/ext/hello') return null;
+    return sameKey(bearer(req), S.settings.extKey) ? null : [401, 'The extension is not paired with this Lookout. Paste the pairing key from Lookout → Settings → Browser extension.'];
+  }
+  if (!isLoopbackAddr(req.socket.remoteAddress)) { // another device on your network
+    const k = cookieKey(req) || bearer(req) || url.searchParams.get('key') || '';
+    if (!sameKey(k, S.settings.deviceKey)) return [401, 'This Lookout only opens on other devices with its link. Open Settings → Other devices on the computer running Lookout.'];
+  }
+  if (!['GET', 'HEAD'].includes(req.method)) {
+    const origin = req.headers.origin; const site = req.headers['sec-fetch-site'];
+    if (origin ? origin !== `http://${req.headers.host}` : site === 'cross-site') return [403, 'Refused: this request came from another website.'];
+  }
+  return null;
+}
+const lanAddresses = () => Object.values(os.networkInterfaces()).flat().filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address);
+// How often to check, by level. Auto keeps the adaptive 1-60 minute ladder; the others stretch that same
+// ladder so the busiest boards are checked at the level's fastest pace and the quietest at its slowest.
+const PACE = { saver: [30 * 60e3, 2 * 36e5], slow: [6 * 36e5, 24 * 36e5] };
+function paced(ms) {
+  const p = PACE[S.settings.pace]; if (!p) return ms;
+  const t = Math.min(1, Math.max(0, Math.log(ms / 60e3) / Math.log(60)));   // 1 min .. 60 min -> 0 .. 1
+  return Math.max(ms > 36e5 ? ms : 0, Math.round(p[0] * Math.pow(p[1] / p[0], t)));
+}
+const TIER_MS = { '1 min': 60e3, '2 min': 120e3, '3 min': 180e3, '10 min': 600e3, '15 min': 900e3, '30 min': 1800e3, '60 min': 3600e3, 'backing off': 6 * 36e5 };
+const fmtDur = ms => ms < 36e5 ? `${Math.round(ms / 6e4)} min` : ms >= 6 * 36e5 || ms % 36e5 === 0 ? `${Math.round(ms / 36e5)} h` : `${(ms / 36e5).toFixed(1)} h`;
 S.boards ||= {}; S.dynamicSources ||= []; S.discoveryLog ||= []; S.blockedCompanies ||= [];
 // Profiles: several people (or several résumés) on one computer. The open profile's saved views, pipeline,
 // blocked companies and profile live in the usual places; the others wait in S.profiles until switched to.
@@ -52,7 +107,7 @@ function cleanProfile(b = {}, prev = {}) {
 }
 const blankProfile = () => cleanProfile({});
 function alertScopes() {
-  const scope = (filterSets, tracking, blocked, label, profile) => ({ filterSets: filterSets || [], ctx: { tracking: tracking || {}, blocked: new Set((blocked || []).map(normCo)), profile }, label });
+  const scope = (filterSets, tracking, blocked, label, profile) => ({ filterSets: filterSets || [], ctx: { tracking: tracking || {}, blocked: new Set((blocked || []).map(normCo)), profile, mentions: fullMention }, label });
   return [scope(S.filterSets, S.tracking, S.blockedCompanies, '', S.settings.profile), ...S.profiles.filter(p => p.id !== S.activeProfile && p.filterSets).map(p => scope(p.filterSets, p.tracking, p.blockedCompanies, p.label, p.profile))];
 }
 function switchProfile(id) {
@@ -179,7 +234,7 @@ async function runSource(src) {
     const fresh = await directLinks(await resolveRoots(ingestAll(src.id, postings, bootstrapping)));
     Object.assign(st, { ok: true, at: new Date().toISOString(), ms: Date.now() - started, fetched: postings.length, added: fresh.length, error: '' });
     if (postings.length) { st.dataRuns = (st.dataRuns || 0) + 1; st.seen = (st.seen || 0) + postings.length; st.unique = (st.unique || 0) + fresh.length; }
-    if (src.dynamic) { const d = S.dynamicSources.find(x => x.id === src.id); if (d && st.dataRuns >= 2 && !st.unique) { d.disabled = true; (S.rejectedRepos ||= []).push(d.repo.toLowerCase()); S.discoveryLog.unshift({ at: new Date().toISOString(), kind: 'retired', text: d.name, via: 'no unique jobs' }); log(`retired ${d.name}: everything it lists is already covered`); } }
+    if (src.dynamic) { const d = S.dynamicSources.find(x => x.id === src.id); if (d && !d.imported && st.dataRuns >= 2 && !st.unique) { d.disabled = true; (S.rejectedRepos ||= []).push(d.repo.toLowerCase()); S.discoveryLog.unshift({ at: new Date().toISOString(), kind: 'retired', text: d.name, via: 'no unique jobs' }); log(`retired ${d.name}: everything it lists is already covered`); } }
     st.runs = (st.runs || 0) + 1; st.totalAdded = (st.totalAdded || 0) + fresh.length;
     if (fresh.length) log(`${src.id}: +${fresh.length} new (${postings.length} fetched)`);
     await handleNew(fresh, bootstrapping);
@@ -187,7 +242,7 @@ async function runSource(src) {
     Object.assign(st, { ok: false, at: new Date().toISOString(), ms: Date.now() - started, error: String(e.message || e).slice(0, 200) });
     log(`${src.id}: ${st.error}`);
   } finally {
-    running.delete(src.id); nextAt[src.id] = Date.now() + src.every * 1000; store.touch();
+    running.delete(src.id); nextAt[src.id] = Date.now() + paced(src.every * 1000); store.touch();
     broadcast('status', { id: src.id, ...publicStatus(src.id) });
   }
 }
@@ -209,6 +264,8 @@ const boardByCo = new Map(); // normCompany -> board key (one board per company)
 }
 function addBoard(provider, board, company, via, { force = false } = {}) {
   if (!ATS_PROVIDERS.includes(provider) || !board) return null;
+  // With discovery off, only boards you chose (watched, imported, the starter list) are ever added.
+  if (S.settings.discover === false && !force && !/^(you|imported|starter list)/.test(via || '')) return S.boards[bkey(provider, board)] || null;
   if (!force && provider !== 'yc' && JUNK_BOARD.test(board)) return null;
   const k = bkey(provider, board);
   let b = S.boards[k];
@@ -238,13 +295,13 @@ async function runBoards() {
     syncBoards();
     const now = Date.now();
     // Most overdue relative to its own interval first, so slow tiers aren't starved by fast ones.
-    const due = boards().map(b => { const iv = boardInterval(b, now); return { b, ratio: (now - Date.parse(b.lastPolled || 0)) / iv }; }).filter(x => x.ratio >= 1)
+    const due = boards().map(b => { const iv = paced(boardInterval(b, now)); return { b, ratio: (now - Date.parse(b.lastPolled || 0)) / iv }; }).filter(x => x.ratio >= 1)
       .sort((x, y) => y.ratio - x.ratio).slice(0, 50).map(x => x.b);
     let fetched = 0, added = 0, errors = 0;
     await pool(due, 10, async b => {
       b.lastPolled = new Date().toISOString();
       try {
-        const posts = await fetchBoard({ provider: b.provider, board: b.board, company: b.company !== b.board ? b.company : undefined }); fetched += posts.length;
+        const posts = await fetchBoard({ provider: b.provider, board: b.board, company: b.company !== b.board ? b.company : undefined, state: b.cursor ||= {}, known: u => { const c = canonicalUrl(u); return store.dedupe.byUrl.has(c) || store.gone.has(c); } }); fetched += posts.length;
         const firstTime = !b.polledOnce; b.polledOnce = true; b.errors = 0; b.openRoles = posts.length;
         const fresh = ingestAll('ats', posts, firstTime); added += fresh.length;
         if (fresh.length && !firstTime) { b.lastNewAt = new Date().toISOString(); b.newCount += fresh.length; }
@@ -323,7 +380,7 @@ async function runFunding() {
     Object.assign(st, { ok: !errs.length || added > 0, at: new Date().toISOString(), added, error: errs.join(' · ').slice(0, 300) });
     st.runs++;
     if (added) { log(`funding: +${added} rounds`); broadcast('funding', { added }); }
-  } finally { running.delete('funding'); nextAt.funding = Date.now() + 5 * 60e3; store.touch(); }
+  } finally { running.delete('funding'); nextAt.funding = Date.now() + paced(5 * 60e3); store.touch(); }
 }
 
 // Background discovery: find websites for funded companies, then which ATS they use.
@@ -374,18 +431,109 @@ function publicStatus(id) { const { cursor, ...rest } = S.sourceStatus[id] || {}
 
 let scanAllRequested = false;
 async function tick() {
-  for (const src of allSources()) if (!running.has(src.id) && (scanAllRequested || Date.now() >= (nextAt[src.id] || 0))) runSource(src);
+  const off = new Set(S.settings.offSources);
+  for (const src of allSources()) if (!off.has(src.id) && !running.has(src.id) && (scanAllRequested || Date.now() >= (nextAt[src.id] || 0))) runSource(src);
   if (scanAllRequested) { for (const b of boards()) if (boardInterval(b) <= 600e3) b.lastPolled = null; }
   scanAllRequested = false;
   if (Date.now() >= (nextAt.ats || 0)) runBoards();
   if (Date.now() >= (nextAt.funding || 0)) runFunding();
   if (Date.now() >= (nextAt.discovery || 0)) runDiscovery();
-  if (Date.now() >= (nextAt.lists || 0)) runListDiscovery();
+  if (S.settings.discover !== false && Date.now() >= (nextAt.lists || 0)) runListDiscovery();
   runContactQueue();
 }
 // stagger first runs so startup doesn't hammer everything at once
 JOB_SOURCES.forEach((s, i) => { nextAt[s.id] = Date.now() + i * 1500; });
 nextAt.ats = Date.now() + 20e3; nextAt.discovery = Date.now() + 30e3; nextAt.lists = S.dynamicSources.some(d => !d.disabled && d.validated !== 2) ? Date.now() + 60e3 : S.sourceStatus.lists?.at ? Date.parse(S.sourceStatus.lists.at) + 6 * 36e5 : Date.now() + 90e3;
+// ---------------------------------------------------------------- sharing sources
+// A sources file is plain JSON anyone can read, edit and send:
+//   { "lookout": "sources", "version": 1, "name": "...", "boards": [{ "platform", "board", "company" }],
+//     "lists": [{ "repo": "owner/name", "name", "url" }] }
+// Boards are company careers boards; lists are community job lists on GitHub.
+const BUILTIN_LISTS = () => JOB_SOURCES.filter(s => /^https:\/\/github\.com\/[^/]+\/[^/]+/.test(s.home || ''));
+const repoOf = home => String(home || '').replace(/^https:\/\/github\.com\//, '').split('/').slice(0, 2).join('/');
+const RAW_GH = /^https:\/\/raw\.githubusercontent\.com\/[\w.-]+\/[\w.-]+\/[\w./%-]+$/;
+const BOARD_OK = /^[A-Za-z0-9_.%/-]{2,200}$/;
+function exportSources({ scope = 'all', name = 'My Lookout sources' } = {}) {
+  const off = new Set(S.settings.offSources);
+  let list = boards().filter(b => !(b.errors >= 3));
+  let builtins = BUILTIN_LISTS().filter(s => !off.has(s.id)), dyn = S.dynamicSources.filter(d => !d.disabled);
+  if (scope === 'useful') {
+    // useful = produced a role that matches one of your saved views, or that you saved, applied to or noted
+    const ctx = { tracking: S.tracking, blocked: new Set(S.blockedCompanies.map(normCo)), mentions: fullMention }; const keep = new Set();
+    for (const j of S.jobs) {
+      if (!S.tracking[j.id] && !S.filterSets.some(fs => matches(view(j), fs.filters, ctx))) continue;
+      const k = boardByCo.get(normCompany(j.company)); if (k) keep.add(k);
+    }
+    list = list.filter(b => b.watched || keep.has(b.key));
+    const yielded = id => (S.sourceStatus[id]?.unique || 0) > 0;
+    builtins = builtins.filter(s => yielded(s.id)); dyn = dyn.filter(d => yielded(d.id));
+  }
+  return {
+    lookout: 'sources', version: 1, name: String(name).slice(0, 80), exported: new Date().toISOString(),
+    boards: list.map(b => ({ platform: b.provider, board: b.board, company: b.company })).sort((a, b) => a.company.localeCompare(b.company)),
+    lists: [...builtins.map(s => ({ repo: repoOf(s.home), name: s.name })), ...dyn.map(d => ({ repo: d.repo, name: d.name, url: d.url }))],
+  };
+}
+function importSources(text, label) {
+  let f; try { f = typeof text === 'string' ? JSON.parse(text) : text; } catch { throw new Error('That file is not a Lookout sources file (it is not valid JSON).'); }
+  if (!f || f.lookout !== 'sources' || !Array.isArray(f.boards || [])) throw new Error('That file is not a Lookout sources file.');
+  const name = String(label || f.name || 'imported list').replace(/\s+/g, ' ').trim().slice(0, 60) || 'imported list';
+  const via = name === 'starter list' ? 'starter list' : `imported: ${name}`;
+  let added = 0, had = 0, skipped = 0, lists = 0;
+  for (const x of (f.boards || []).slice(0, 20000)) {
+    const provider = String(x?.platform || x?.provider || ''), board = String(x?.board || '').trim();
+    if (!ATS_PROVIDERS.includes(provider) || !BOARD_OK.test(board)) { skipped++; continue; }
+    const k = bkey(provider, board); if (S.boards[k]) { had++; continue; }
+    const b = addBoard(provider, board, String(x.company || board).slice(0, 120), via);
+    if (b && b.key === k) added++; else if (b) had++; else skipped++;
+  }
+  const off = new Set(S.settings.offSources);
+  for (const l of (f.lists || []).slice(0, 200)) {
+    const repo = String(l?.repo || ''); if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) continue;
+    const builtin = BUILTIN_LISTS().find(s => repoOf(s.home).toLowerCase() === repo.toLowerCase());
+    if (builtin) { if (off.delete(builtin.id)) lists++; continue; }
+    const id = `gh:${repo.toLowerCase()}`; const cur = S.dynamicSources.find(d => d.id === id);
+    if (cur) { if (cur.disabled) { cur.disabled = false; cur.imported = true; lists++; } continue; }
+    if (!RAW_GH.test(String(l.url || ''))) continue; // lists are only ever read from GitHub
+    S.dynamicSources.push({ id, repo, name: String(l.name || `${repo} (GitHub)`).slice(0, 80), url: l.url, home: `https://github.com/${repo}`, rows: 0, stars: 0, addedAt: new Date().toISOString(), every: 300, runs: 0, unique: 0, disabled: false, validated: 2, imported: true });
+    S.rejectedRepos = (S.rejectedRepos || []).filter(r => r !== repo.toLowerCase()); lists++;
+  }
+  S.settings.offSources = [...off];
+  S.discoveryLog.unshift({ at: new Date().toISOString(), kind: 'source', text: `${added} boards and ${lists} lists`, via: name });
+  store.touch(); nextAt.ats = 0;
+  return { name, added, had, skipped, lists };
+}
+function resetSources({ stopDiscovery = true } = {}) {
+  let removed = 0;
+  for (const b of boards()) if (!b.watched) { delete S.boards[b.key]; removed++; }
+  boardByCo.clear(); for (const b of boards()) boardByCo.set(normCompany(b.company), b.key);
+  const lists = S.dynamicSources.filter(d => !d.disabled).length + BUILTIN_LISTS().filter(s => !S.settings.offSources.includes(s.id)).length;
+  S.dynamicSources = [];
+  S.settings.offSources = [...new Set([...S.settings.offSources, ...BUILTIN_LISTS().map(s => s.id)])];
+  if (stopDiscovery) S.settings.discover = false;
+  S.discoveryLog.unshift({ at: new Date().toISOString(), kind: 'retired', text: `${removed} boards and ${lists} lists`, via: 'removed by you' });
+  store.touch();
+  return { removed, lists, kept: boards().length };
+}
+const STARTER_FILE = path.join(ROOT, 'starter', 'sources.json');
+async function starterInfo() {
+  try {
+    const f = JSON.parse(await fs.readFile(STARTER_FILE, 'utf8'));
+    const have = f.boards.filter(x => S.boards[bkey(x.platform, x.board)]).length;
+    return { boards: f.boards.length, lists: (f.lists || []).length, have };
+  } catch { return null; }
+}
+async function sourcesInfo() {
+  const off = new Set(S.settings.offSources);
+  return { boards: boards().length, lists: S.dynamicSources.filter(d => !d.disabled).length + BUILTIN_LISTS().filter(s => !off.has(s.id)).length, starter: await starterInfo() };
+}
+// One-time: boards on the newly supported platforms are already referenced by roles on file.
+if (S.platformHarvest !== 1 && S.settings.discover !== false) {
+  let n = 0; for (const j of S.jobs) for (const u of j.urls || [j.url]) for (const h of harvestBoards(u || '')) if ((h.provider === 'workday' || h.provider === 'oracle') && !S.boards[bkey(h.provider, h.board)] && addBoard(h.provider, h.board, j.company, 'followed link')) n++;
+  if (n) log(`boards: found ${n} Oracle and Workday career sites in roles already on file`);
+  S.platformHarvest = 1; store.touch();
+}
+
 // ---------------------------------------------------------------- root postings
 // A role that reaches us through a re-poster is folded into the employer's own listing when that can be
 // found; when it can't, the copy is kept but marked, so it can be hidden and is never mistaken for the source.
@@ -493,8 +641,8 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.
 
 function sourcesMeta() {
   return [
-    ...allSources().map(s => ({ id: s.id, name: s.name, every: s.every, home: s.home, trust: s.trust, kind: 'jobs', dynamic: !!s.dynamic, ...publicStatus(s.id) })),
-    { id: 'ats', name: 'Company career pages (ATS)', every: 30, home: '', trust: 'Direct from each company’s own Greenhouse / Lever / Ashby / Workable / SmartRecruiters / Recruitee / YC board, polled every 1–60 min depending on activity', kind: 'jobs', ...publicStatus('ats') },
+    ...allSources().map(s => ({ id: s.id, name: s.name, every: Math.round(paced(s.every * 1000) / 1000), home: s.home, trust: s.trust, kind: 'jobs', dynamic: !!s.dynamic, off: S.settings.offSources.includes(s.id), ...publicStatus(s.id) })),
+    { id: 'ats', name: 'Company career pages (ATS)', every: 30, home: '', trust: 'Direct from each company’s own Greenhouse / Lever / Ashby / Workable / SmartRecruiters / Recruitee / YC / Oracle / Workday board, polled more often when it is busy (see Settings → Sources for the pace)', kind: 'jobs', ...publicStatus('ats') },
     { id: 'funding', name: 'Funding news + YC batches', every: 300, home: '', trust: FUNDING_FEEDS.map(f => f.name).join(', ') + ', yc-oss', kind: 'funding', ...publicStatus('funding') },
   ];
 }
@@ -506,7 +654,7 @@ function discoveryOverview() {
   for (const b of all) { tiers[name(boardInterval(b, now))]++; byProvider[b.provider] = (byProvider[b.provider] || 0) + 1; byVia[b.via || 'other'] = (byVia[b.via || 'other'] || 0) + 1; }
   const top = all.filter(b => b.newCount).sort((a, b) => b.newCount - a.newCount).slice(0, 12).map(b => ({ company: b.company, provider: b.provider, newCount: b.newCount, lastNewAt: b.lastNewAt }));
   const yieldRows = allSources().map(s => { const st = S.sourceStatus[s.id] || {}; return { id: s.id, name: s.name, seen: st.seen || 0, unique: st.unique || 0, dynamic: !!s.dynamic }; });
-  return { boards: all.length, tiers, byProvider, byVia, top, log: S.discoveryLog.slice(0, 60), lists: S.dynamicSources, yield: yieldRows, listsStatus: S.sourceStatus.lists || null, nextListSearch: nextAt.lists || null, sourceCount: allSources().length + 1 };
+  return { boards: all.length, tiers, byProvider, byVia, top, log: S.discoveryLog.slice(0, 60), lists: S.dynamicSources, yield: yieldRows, listsStatus: S.sourceStatus.lists || null, nextListSearch: nextAt.lists || null, sourceCount: allSources().length + 1, pace: S.settings.pace, tierLabels: S.settings.pace === 'auto' ? null : Object.fromEntries(Object.entries(TIER_MS).map(([k, ms]) => [k, k === 'backing off' ? k : fmtDur(paced(ms))])) };
 }
 function signals() {
   const jobsByCo = new Map();
@@ -518,6 +666,15 @@ function signals() {
 
 async function route(req, res) {
   const url = new URL(req.url, 'http://x'); const p = url.pathname; const m = req.method;
+  const denied = guard(req, p, url);
+  if (denied) {
+    if ((req.headers.accept || '').includes('text/html')) { res.writeHead(denied[0], { 'content-type': 'text/html; charset=utf-8' }); return res.end(`<!doctype html><meta charset="utf-8"><title>Lookout</title><body style="font:16px system-ui;padding:40px;max-width:560px">${denied[1]}</body>`); }
+    return json(res, denied[0], { error: denied[1] });
+  }
+  // a phone opening its link: remember the key in a cookie, then show the app
+  if (m === 'GET' && url.searchParams.get('key') && !isLoopbackAddr(req.socket.remoteAddress)) {
+    res.writeHead(302, { 'set-cookie': `lk_key=${S.settings.deviceKey}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000`, location: '/' }); return res.end();
+  }
   if (m === 'GET' && p === '/api/events') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.write('retry: 3000\n\n'); sse.add(res); req.on('close', () => sse.delete(res)); return;
@@ -532,8 +689,8 @@ async function route(req, res) {
   }
   if (m === 'GET' && p.startsWith('/api/job/')) { const j = store.byId.get(decodeURIComponent(p.slice(9))); return j ? json(res, 200, view(j)) : json(res, 404, { error: 'Not found' }); }
   if (m === 'GET' && p === '/api/meta') {
-    const { ntfyToken, ...settings } = S.settings;
-    return json(res, 200, { profiles: S.profiles.map(p => ({ id: p.id, label: p.label, active: p.id === S.activeProfile })), settings: { ...settings, hasToken: !!ntfyToken }, filterSets: S.filterSets, tracking: S.tracking, blockedCompanies: S.blockedCompanies, sources: sourcesMeta(), watch: S.watch, alerts: S.alerts.slice(0, 50), funding: S.funding.slice(0, 300), stats: { jobs: S.jobs.length, companies: Object.keys(S.companies).length, boards: boards().length, funded: Object.values(S.companies).filter(c => fundingInfo(c)).length } });
+    const { ntfyToken, extKey, deviceKey, ...settings } = S.settings;
+    return json(res, 200, { sourceInfo: await sourcesInfo(), profiles: S.profiles.map(p => ({ id: p.id, label: p.label, active: p.id === S.activeProfile })), settings: { ...settings, hasToken: !!ntfyToken }, filterSets: S.filterSets, tracking: S.tracking, blockedCompanies: S.blockedCompanies, sources: sourcesMeta(), watch: S.watch, alerts: S.alerts.slice(0, 50), funding: S.funding.slice(0, 300), stats: { jobs: S.jobs.length, companies: Object.keys(S.companies).length, boards: boards().length, funded: Object.values(S.companies).filter(c => fundingInfo(c)).length } });
   }
   if (m === 'GET' && p === '/api/signals') return json(res, 200, { companies: signals() });
   if (m === 'GET' && p === '/api/discovery') return json(res, 200, discoveryOverview());
@@ -571,6 +728,8 @@ async function route(req, res) {
     for (const k of ['ntfyServer', 'ntfyTopic', 'quietHours']) if (k in b) s[k] = String(b[k] || '').trim();
     if ('ntfyToken' in b && b.ntfyToken !== '••••') s.ntfyToken = String(b.ntfyToken || '').trim();
     if ('desktopNotify' in b) s.desktopNotify = !!b.desktopNotify;
+    if ('discover' in b) s.discover = !!b.discover;
+    if (['auto', 'saver', 'slow'].includes(b.pace) && b.pace !== s.pace) { s.pace = b.pace; for (const k of Object.keys(nextAt)) if (k !== 'lists') nextAt[k] = Math.min(nextAt[k] || 0, Date.now() + paced(60e3)); }
     if (Array.isArray(b.linkedinSearches)) { s.linkedinSearches = b.linkedinSearches.map(x => ({ keywords: String(x?.keywords || '').trim().slice(0, 80), location: String(x?.location || '').trim().slice(0, 80), remote: !!x?.remote })).filter(x => x.keywords).slice(0, 12); nextAt.linkedin = 0; }
     if (b.profile) s.profile = cleanProfile(b.profile, s.profile);
     store.touch(); await store.save(); return json(res, 200, { ok: true });
@@ -603,6 +762,93 @@ async function route(req, res) {
     store.touch(); await store.save();
     return json(res, 200, { profiles: S.profiles.map(x => ({ id: x.id, label: x.label, active: x.id === S.activeProfile })) });
   }
+  if (m === 'GET' && p === '/api/access') {
+    // keys are only ever shown on this computer
+    if (!isLoopbackAddr(req.socket.remoteAddress)) return json(res, 403, { error: 'Only on the computer running Lookout.' });
+    const lan = HOST !== '127.0.0.1' && HOST !== 'localhost';
+    return json(res, 200, { extKey: S.settings.extKey, extSeen: S.settings.extSeen || null, extFolder: path.join(ROOT, 'extension'), lan, deviceLinks: lan ? lanAddresses().map(a => `http://${a}:${PORT}/?key=${S.settings.deviceKey}`) : [] });
+  }
+  if (m === 'POST' && p === '/api/access/rotate') {
+    if (!isLoopbackAddr(req.socket.remoteAddress)) return json(res, 403, { error: 'Only on the computer running Lookout.' });
+    const b = await body(req); if (b.which === 'device') S.settings.deviceKey = crypto.randomBytes(18).toString('base64url'); else S.settings.extKey = crypto.randomBytes(18).toString('base64url');
+    store.touch(); await store.save(); return json(res, 200, { ok: true });
+  }
+  if (p.startsWith('/api/ext/')) {
+    const paired = sameKey(bearer(req), S.settings.extKey);
+    if (paired) { S.settings.extSeen = new Date().toISOString(); store.touch(); }
+    const prof = S.settings.profile || {}; const label = S.profiles.find(x => x.id === S.activeProfile)?.label || 'Me';
+    const you = { label, name: prof.name || '', skills: prof.skills || [], yearsExp: prof.yearsExp ?? null, strictFit: prof.strictFit !== false };
+    if (m === 'GET' && p === '/api/ext/hello') return json(res, 200, { app: 'lookout', paired, ...(paired ? { profile: you, port: PORT } : {}) });
+    // the page the extension read, shaped like any other posting
+    const posting = b => {
+      const pg = b?.page || {}; const s = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+      const url = s(pg.url, 600);
+      if (!/^https?:\/\//i.test(url)) throw new Error('The page has no web address.');
+      return { title: s(pg.title, 200) || 'Untitled role', company: s(pg.company, 120) || (() => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return 'Unknown'; } })(), url, applyUrl: s(pg.applyUrl, 600) || '', location: s(pg.location, 200), typeHint: s(pg.employmentType, 60), levelHint: s(pg.seniority, 60), description: String(pg.description || '').slice(0, 30000), postedAt: toIsoDate(pg.datePosted), precision: 'date', source: 'browser' };
+    };
+    const toIsoDate = v => { const t = Date.parse(v || ''); return Number.isFinite(t) ? new Date(t).toISOString() : null; };
+    if (m === 'POST' && p === '/api/ext/compare') {
+      let raw; try { raw = posting(await body(req)); } catch (e) { return json(res, 400, { error: e.message }); }
+      const e = enrich(raw); const ft = fit(e, prof);
+      const hitId = store.dedupe.match(e, id => store.byId.get(id)); const hit = hitId && store.byId.get(hitId);
+      return json(res, 200, {
+        profile: you,
+        role: { title: e.title, company: e.company, type: e.type, level: e.level, yearsMin: e.yearsMin ?? null, yearsMax: e.yearsMax ?? null, visa: e.visa, workMode: e.workMode, country: e.country, skills: e.skills.map(x => x.name) },
+        fit: { have: ft.have, missing: ft.missing, general: ft.general, genHave: ft.genHave, expGap: ft.expGap, pct: ft.pct }, overReach: overReach(e, prof),
+        onFile: hit ? { id: hit.id, title: hit.title, sources: hit.sources.map(x => x.source === 'ats' ? 'the company’s careers site' : x.source === 'browser' ? 'your browser' : srcLabel(x.source)), postedAt: hit.postedAt, firstSeen: hit.firstSeen, applyUrl: hit.applyUrl || hit.url, applyKind: ['copy', 'site', 'near', 'direct'][Math.max(0, linkRank(hit.applyUrl || hit.url, hit.company))], status: S.tracking[hit.id]?.status || '' } : null,
+        board: detectInText(raw.url) || null,
+      });
+    }
+    if (m === 'POST' && p === '/api/ext/save') {
+      let raw; try { raw = posting(await body(req)); } catch (e) { return json(res, 400, { error: e.message }); }
+      const { job, isNew } = store.ingest(raw, { keep: true }); // saved by you: kept however old, and never pruned while it is in your pipeline
+      if (!job) return json(res, 400, { error: 'That role is too old to keep, or was removed from Lookout earlier.' });
+      S.tracking[job.id] = { ...(S.tracking[job.id] || {}), status: S.tracking[job.id]?.status || 'saved', hidden: false, note: S.tracking[job.id]?.note || '', at: new Date().toISOString() };
+      if (isNew) broadcast('jobs', { added: [slim(job)] });
+      store.touch(); await store.save();
+      return json(res, 200, { id: job.id, isNew, status: S.tracking[job.id].status, open: `http://127.0.0.1:${PORT}/#job:${job.id}` });
+    }
+    if (m === 'POST' && p === '/api/ext/watch') {
+      const b = await body(req); const target = detectInText(String(b.url || ''));
+      if (!target || !ATS_PROVIDERS.includes(target.provider)) return json(res, 400, { error: 'This page is not on a careers system Lookout can read.' });
+      if (S.watch.some(w => w.provider === target.provider && w.board.toLowerCase() === target.board.toLowerCase())) return json(res, 200, { already: true });
+      try { await fetchBoard(target); } catch (e) { return json(res, 400, { error: `That careers site did not answer (${e.message}).` }); }
+      const w = { id: Date.now().toString(36), name: String(b.company || target.board).slice(0, 80), ...target, addedAt: new Date().toISOString() };
+      S.watch.unshift(w); store.touch(); nextAt.ats = 0; return json(res, 200, w);
+    }
+    return json(res, 404, { error: 'Unknown extension request.' });
+  }
+  if (m === 'POST' && p === '/api/mentions') {
+    // Which roles mention each word anywhere in the posting. The app asks once per word, then only for roles it hasn't asked about.
+    const b = await body(req).catch(() => ({}));
+    const terms = [...new Set((Array.isArray(b.terms) ? b.terms : []).map(t => String(t).toLowerCase().trim()).filter(t => t && t.length <= 60))].slice(0, 30);
+    const only = Array.isArray(b.ids) ? b.ids.map(id => store.byId.get(String(id))).filter(Boolean) : S.jobs;
+    const out = {}; for (const t of terms) out[t] = [];
+    for (const j of only) { const text = fullText(j); for (const t of terms) if (mentionsIn(text, t)) out[t].push(j.id); }
+    return json(res, 200, { terms: out, ids: only.map(j => j.id) });
+  }
+  if (m === 'GET' && p === '/api/sources/export') {
+    const f = exportSources({ scope: url.searchParams.get('scope') === 'useful' ? 'useful' : 'all', name: url.searchParams.get('name') || undefined });
+    return json(res, 200, f);
+  }
+  if (m === 'POST' && p === '/api/sources/import') {
+    try { const b = await body(req); const r = importSources(b.text, b.name); await store.save(); return json(res, 200, { ...r, info: await sourcesInfo() }); }
+    catch (e) { return json(res, 400, { error: e.message }); }
+  }
+  if (m === 'POST' && p === '/api/sources/starter') {
+    try { const r = importSources(await fs.readFile(STARTER_FILE, 'utf8'), 'starter list'); await store.save(); return json(res, 200, { ...r, info: await sourcesInfo() }); }
+    catch (e) { return json(res, 400, { error: e.code === 'ENOENT' ? 'The starter list is missing from this copy of Lookout.' : e.message }); }
+  }
+  if (m === 'POST' && p === '/api/sources/reset') {
+    const b = await body(req); const r = resetSources({ stopDiscovery: b.stopDiscovery !== false }); await store.save();
+    return json(res, 200, { ...r, info: await sourcesInfo() });
+  }
+  if (m === 'POST' && p === '/api/sources/toggle') {
+    const b = await body(req); const id = String(b.id || '');
+    if (!allSources().some(s => s.id === id)) return json(res, 404, { error: 'No such source.' });
+    const off = new Set(S.settings.offSources); b.on ? off.delete(id) : off.add(id); S.settings.offSources = [...off];
+    if (b.on) nextAt[id] = 0; store.touch(); return json(res, 200, { off: S.settings.offSources });
+  }
   if (m === 'POST' && p === '/api/test-push') {
     const b = await body(req).catch(() => ({}));
     try { const r = await testPush(S.settings, String(b?.channel || ''), String(b?.name || '').slice(0, 60)); return json(res, r.skipped ? 400 : 200, r.skipped ? { error: 'Set an ntfy topic first.' } : r); } catch (e) { return json(res, /topic|address|link/.test(e.message) ? 400 : 502, { error: e.message }); }
@@ -612,7 +858,7 @@ async function route(req, res) {
     let target = null; const input = String(b.url || '').trim();
     if (b.provider && b.board) target = { provider: b.provider, board: String(b.board).trim() };
     else if (input) target = detectInText(input) || (/^https?:/.test(input) ? await detectAts(input, name) : null);
-    if (!target || !ATS_PROVIDERS.includes(target.provider)) return json(res, 400, { error: 'Could not find a Greenhouse, Lever, Ashby, Workable, SmartRecruiters or Recruitee board at that address.' });
+    if (!target || !ATS_PROVIDERS.includes(target.provider)) return json(res, 400, { error: 'Could not find a Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, Oracle or Workday (myworkdaysite.com) board at that address.' });
     try { await fetchBoard(target); } catch (e) { return json(res, 400, { error: `Board ${target.provider}/${target.board} did not respond (${e.message}).` }); }
     const w = { id: Date.now().toString(36), name: name || target.board, ...target, addedAt: new Date().toISOString() };
     S.watch.unshift(w); store.touch(); nextAt.ats = 0; return json(res, 200, w);
