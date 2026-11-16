@@ -67,13 +67,15 @@ figcaption{color:var(--text3);font-size:.88em;margin-top:18px}
 .shot.side.tall{max-width:330px}
 .shot.wide{margin-top:44px}
 /* demo video */
-.demo{position:relative;margin-top:40px}
+.demo{position:relative;margin-top:40px;container-type:inline-size}
 .demo video{display:block;width:100%;height:auto;aspect-ratio:16/9;background:#0b0b0e}
-.demo .play{position:absolute;inset:0;display:grid;place-items:end center;padding-bottom:9%;border:0;background:none;cursor:pointer;font:inherit}
-.demo .play span{display:inline-flex;align-items:center;gap:14px;padding:12px 24px 12px 12px;border-radius:99px;background:#c6f432;color:#0b0d05;font-weight:600;font-size:1.05em;box-shadow:0 18px 50px rgba(0,0,0,.5);transition:transform .12s}
-.demo .play:hover span{transform:scale(1.04)}
-.demo .play i{width:38px;height:38px;border-radius:50%;background:#0b0d05;display:grid;place-items:center}
-.demo .play i::after{content:"";margin-left:4px;border-left:13px solid #c6f432;border-top:8px solid transparent;border-bottom:8px solid transparent}
+/* the play button scales with the video so it never covers the title on small screens */
+.demo .play{position:absolute;inset:0;display:grid;place-items:end center;padding:0 0 5cqi;border:0;background:none;cursor:pointer;font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
+.demo .play span{display:inline-flex;align-items:center;gap:.75em;padding:.45em 1.35em .45em .45em;border-radius:99px;background:#c6f432;color:#0b0d05;font-weight:600;font-size:clamp(.72rem,1.9cqi,1.05rem);line-height:1.2;box-shadow:0 18px 50px rgba(0,0,0,.5);transition:transform .12s}
+.demo .play:hover span,.demo .play:focus-visible span{transform:scale(1.04)}
+.demo .play:focus-visible span{outline:3px solid #f2f2f0;outline-offset:3px}
+.demo .play i{width:2em;height:2em;border-radius:50%;background:#0b0d05;display:grid;place-items:center;flex-shrink:0}
+.demo .play i::after{content:"";margin-left:.2em;border-left:.7em solid #c6f432;border-top:.42em solid transparent;border-bottom:.42em solid transparent}
 .demo.playing .play{display:none}
 /* sections */
 section{padding:104px 0 0}
@@ -169,8 +171,11 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
   </div>
   <script>
     (() => { const box = document.getElementById('demoBox'), v = document.getElementById('demoVideo');
-      box.querySelector('.play').addEventListener('click', () => { box.classList.add('playing'); v.play(); });
-      v.addEventListener('play', () => box.classList.add('playing')); })();
+      // the player's own controls come back once it starts, so they don't sit under the play button
+      v.controls = false;
+      const start = () => { box.classList.add('playing'); v.controls = true; };
+      box.querySelector('.play').addEventListener('click', () => { start(); v.play(); });
+      v.addEventListener('play', start); })();
   </script>
 </div></section>
 
