@@ -61,7 +61,7 @@ if ($cert) {
 $zip = Join-Path $dist 'Lookout-windows.zip'
 Compress-Archive -Path $stage -DestinationPath $zip -Force
 # the extension on its own, ready for the Chrome Web Store or Edge Add-ons
-$extZip = Join-Path $dist 'lookout-extension.zip'
+$extZip = Join-Path $dist 'Lookout-extension.zip'
 Compress-Archive -Path (Join-Path $root 'extension\*') -DestinationPath $extZip -Force
 Write-Host "Built $extZip."
 Write-Host "Built $zip ($([math]::Round((Get-Item $zip).Length / 1KB)) KB)."

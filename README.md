@@ -5,9 +5,9 @@
 <p align="center"><b>Find startup jobs and internships minutes after they're posted, before the job boards do.</b><br>
 A local, near-real-time job scanner that watches freshly funded startups, deduplicates every source,<br>matches roles to the skills your résumé, LinkedIn and GitHub show, finds who to contact, and pushes matches to your phone.</p>
 
-<p align="center"><a href="https://falconfuryx77.github.io/lookout/">Website</a> · <a href="https://github.com/FalconFuryX77/lookout/releases/latest">Download for Windows</a> · <a href="#browser-extension">Browser extension</a></p>
+<p align="center"><a href="https://falconfuryx77.github.io/Lookout/">Website</a> · <a href="https://github.com/FalconFuryX77/Lookout/releases/latest">Download for Windows</a> · <a href="#browser-extension">Browser extension</a></p>
 
-<p align="center"><a href="https://falconfuryx77.github.io/lookout/#demo"><img src="docs/img/demo-poster.jpg" width="760" alt="Watch the two-minute demo of Lookout"></a><br>
+<p align="center"><a href="https://falconfuryx77.github.io/Lookout/#demo"><img src="docs/img/demo-poster.jpg" width="760" alt="Watch the two-minute demo of Lookout"></a><br>
 <sub>Two-minute demo, recorded in the real app with a made-up profile. <a href="docs/video/lookout-demo.mp4">Download the MP4</a></sub></p>
 
 ---
@@ -53,7 +53,7 @@ A local, near-real-time job scanner that watches freshly funded startups, dedupl
 
 ## Download
 
-Get the latest Windows build from the [Releases page](https://github.com/FalconFuryX77/lookout/releases/latest): download `Lookout-windows.zip`, unzip it anywhere, and double-click `Lookout.exe`. The browser extension is inside, in the `extension` folder (also attached on its own as `lookout-extension.zip`). The landing page for the project is in [`docs/`](docs/index.html).
+Get the latest Windows build from the [Releases page](https://github.com/FalconFuryX77/Lookout/releases/latest): download `Lookout-windows.zip`, unzip it anywhere, and double-click `Lookout.exe`. The browser extension is inside, in the `extension` folder (also attached on its own as `Lookout-extension.zip`). The landing page for the project is in [`docs/`](docs/index.html).
 
 ## Quick start
 
@@ -325,7 +325,7 @@ data/db.json           your data (not committed)
 npm start                     # run the scanner + UI on http://127.0.0.1:4173
 .\build-desktop.ps1           # rebuild Lookout.exe (compiles desktop\Lookout.cs with the .NET Framework compiler)
 .\desktop\make-icon.ps1       # regenerate desktop\lookout.ico from the logo design
-.\release.ps1                 # build dist\Lookout-windows.zip and dist\lookout-extension.zip; add -Thumbprint or -PfxPath to code-sign Lookout.exe
+.\release.ps1                 # build dist\Lookout-windows.zip and dist\Lookout-extension.zip; add -Thumbprint or -PfxPath to code-sign Lookout.exe
 ```
 
 - **Environment variables:** `PORT` (default 4173), `HOST` (default `127.0.0.1`; set `0.0.0.0` to reach it from your phone on the same Wi-Fi, then open the link from **Settings → Other devices** on the phone once).
