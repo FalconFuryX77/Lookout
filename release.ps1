@@ -24,7 +24,7 @@ if (-not $SkipBuild) { & (Join-Path $root 'build-desktop.ps1') }
 # 1. Stage exactly what a user needs: the app, the scanner and the UI. Never anyone's data.
 if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
 $null = New-Item -ItemType Directory -Path (Join-Path $stage 'desktop') -Force
-$files = 'Lookout.exe', 'Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll', 'server.mjs', 'package.json', 'README.md', 'setup-desktop.ps1'
+$files = 'Lookout.exe', 'Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll', 'server.mjs', 'package.json', 'README.md', 'LICENSE', 'setup-desktop.ps1'
 foreach ($f in $files) { Copy-Item (Join-Path $root $f) $stage }
 Copy-Item (Join-Path $root 'src') $stage -Recurse
 # the extension uses the same skill code as the app: refresh its copy first

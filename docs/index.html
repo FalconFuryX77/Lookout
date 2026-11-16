@@ -313,7 +313,7 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
     <li><span><b>Your data stays in one file on your disk.</b> Résumé, profile, saved roles and notes.</span></li>
     <li><span><b>No logins to other sites.</b> It reads only what anyone can see without signing in, and never asks for your LinkedIn password.</span></li>
     <li><span><b>Locked to your computer.</b> Other websites can't reach it through your browser; the extension and your phone need a key you give them.</span></li>
-    <li><span><b>The code is there to read.</b> Plain JavaScript with no third-party packages.</span></li>
+    <li><span><b>The code is there to read.</b> Open source (AGPL-3.0), plain JavaScript, no third-party packages.</span></li>
   </ul>
 </div></section>
 
@@ -323,7 +323,7 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
   <div class="faq">
     <details><summary>Does my computer have to stay on?</summary><p>Yes. Lookout scans only while it is running, so roles posted while your computer is asleep are found when it wakes up. A slower sweep of the last day catches those, but the alert will be later.</p></details>
     <details><summary>What do I need installed?</summary><p>Windows 10 or 11 and Node.js 20 or newer. The Edge WebView2 runtime is also needed; Windows 11 has it already. There are no other packages to install.</p></details>
-    <details><summary>Is it really free?</summary><p>Yes. Phone alerts use ntfy, which is also free. Nothing in Lookout costs money or needs a paid key.</p></details>
+    <details><summary>Is it really free?</summary><p>Yes, and open source under the AGPL-3.0 license. Phone alerts use ntfy, which is also free. Nothing in Lookout costs money or needs a paid key.</p></details>
     <details><summary>Is reading LinkedIn allowed?</summary><p>Lookout reads LinkedIn's public job search, the pages anyone sees logged out, gently and without an account. Automated access is still against LinkedIn's terms of use, so that source is your call: clear the box in Settings and it is off.</p></details>
     <details><summary>What does the browser extension need?</summary><p>Edge or Chrome. It comes in the download's <code>extension</code> folder: turn on Developer mode on the extensions page, choose Load unpacked, then paste the pairing key from Lookout's Settings. It reads a page only when you click its button.</p></details>
     <details><summary>Can I use it on my phone?</summary><p>Alerts come to your phone through the free ntfy app. To browse Lookout itself on your phone, run it with <code>HOST=0.0.0.0</code> and open the link from Settings → Other devices while on the same Wi-Fi; the link carries a key, so share it like a password.</p></details>
@@ -338,7 +338,7 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
     <div class="cta"><a class="btn primary" href="https://github.com/FalconFuryX77/lookout/releases/latest">Download for Windows</a><a class="btn" href="https://github.com/FalconFuryX77/lookout#readme">Read the guide</a></div>
     <p class="fine">Free. No account. Your data stays on your computer.</p>
   </div>
-  <footer><span>Lookout</span><span>Screenshots are of the real app with a made-up sample profile, taken on 16 November 2026. The roles in them were real public listings that day.</span></footer>
+  <footer><span>Lookout · open source under <a href="https://github.com/FalconFuryX77/lookout/blob/main/LICENSE">AGPL-3.0</a></span><span>Screenshots are of the real app with a made-up sample profile, taken on 16 November 2026. The roles in them were real public listings that day.</span></footer>
 </div>
 
 </body>

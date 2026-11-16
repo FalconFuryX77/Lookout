@@ -5,6 +5,8 @@
 <p align="center"><b>Find startup jobs and internships minutes after they're posted, before the job boards do.</b><br>
 A local, near-real-time job scanner that watches freshly funded startups, deduplicates every source,<br>finds who to contact, and pushes matches to your phone.</p>
 
+<p align="center"><a href="https://falconfuryx77.github.io/lookout/">Website</a> · <a href="https://github.com/FalconFuryX77/lookout/releases/latest">Download for Windows</a> · <a href="#browser-extension">Browser extension</a></p>
+
 ---
 
 ## Contents
@@ -27,6 +29,7 @@ A local, near-real-time job scanner that watches freshly funded startups, dedupl
 - [Browser extension](#browser-extension)
 - [Security](#security)
 - [Privacy and limits](#privacy-and-limits)
+- [License](#license)
 
 ---
 
@@ -352,3 +355,11 @@ Lookout runs a small web server on your computer, so it guards against other web
 - "Real time" means polling. Most sources are checked every 1–5 minutes, but a source can publish late, and nothing runs while the computer sleeps.
 - Skills, visa, years and pay are extracted from posting text with rules. They're accurate for most roles but not perfect, so read the posting before applying.
 - India coverage comes from InternScan, the India Tech Internships list, India funding news, and the boards of Indian startups as they're discovered.
+
+## License
+
+Copyright (C) 2026 FalconFuryX77
+
+Lookout is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See [LICENSE](LICENSE).
+
+In short: use it, change it and share it freely. If you share a changed version, or run one as a service other people use over a network, you have to make your source code available under the same license.
