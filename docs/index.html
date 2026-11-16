@@ -66,6 +66,15 @@ figcaption{color:var(--text3);font-size:.88em;margin-top:18px}
 .shot.side{max-width:560px;justify-self:center;width:100%}
 .shot.side.tall{max-width:330px}
 .shot.wide{margin-top:44px}
+/* demo video */
+.demo{position:relative;margin-top:40px}
+.demo video{display:block;width:100%;height:auto;aspect-ratio:16/9;background:#0b0b0e}
+.demo .play{position:absolute;inset:0;display:grid;place-items:end center;padding-bottom:9%;border:0;background:none;cursor:pointer;font:inherit}
+.demo .play span{display:inline-flex;align-items:center;gap:14px;padding:12px 24px 12px 12px;border-radius:99px;background:#c6f432;color:#0b0d05;font-weight:600;font-size:1.05em;box-shadow:0 18px 50px rgba(0,0,0,.5);transition:transform .12s}
+.demo .play:hover span{transform:scale(1.04)}
+.demo .play i{width:38px;height:38px;border-radius:50%;background:#0b0d05;display:grid;place-items:center}
+.demo .play i::after{content:"";margin-left:4px;border-left:13px solid #c6f432;border-top:8px solid transparent;border-bottom:8px solid transparent}
+.demo.playing .play{display:none}
 /* sections */
 section{padding:104px 0 0}
 .eyebrow{font:500 .8em var(--mono);color:var(--live);letter-spacing:.08em;text-transform:uppercase}
@@ -119,7 +128,7 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
 <nav><div class="wrap">
   <a class="brand" href="#top"><img src="logo.svg" alt="">Lookout</a>
   <div class="links">
-    <a href="#early">Why early</a><a href="#features">Features</a><a href="#filters">Filters</a><a href="#extension">Extension</a><a href="#resume">Résumé match</a><a href="#privacy">Privacy</a><a href="#faq">FAQ</a>
+    <a href="#demo">Demo</a><a href="#early">Why early</a><a href="#features">Features</a><a href="#filters">Filters</a><a href="#extension">Extension</a><a href="#resume">Résumé match</a><a href="#privacy">Privacy</a><a href="#faq">FAQ</a>
     <a class="btn sm primary" href="https://github.com/FalconFuryX77/lookout/releases/latest">Download</a>
   </div>
 </div></nav>
@@ -146,6 +155,24 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
     <figcaption>The real app, a few minutes after a fresh install. Every role in this list went up within the last hour.</figcaption>
   </figure>
 </div></header>
+
+<section id="demo"><div class="wrap">
+  <span class="eyebrow">See it work</span>
+  <h2>Two minutes, start to finish.</h2>
+  <p class="lede">Recorded in the real app with a made-up profile: new roles coming in, matching against a résumé, filters, phone alerts, the browser extension. It has captions and no sound.</p>
+  <div class="shot demo" id="demoBox">
+    <video id="demoVideo" controls preload="none" playsinline poster="video/poster.jpg" width="1920" height="1080">
+      <source src="video/lookout-demo.mp4" type="video/mp4">
+      <a href="video/lookout-demo.mp4">Download the demo video (MP4, 7 MB)</a>
+    </video>
+    <button class="play" type="button" aria-label="Play the two-minute demo"><span><i></i>Watch the 2-minute demo</span></button>
+  </div>
+  <script>
+    (() => { const box = document.getElementById('demoBox'), v = document.getElementById('demoVideo');
+      box.querySelector('.play').addEventListener('click', () => { box.classList.add('playing'); v.play(); });
+      v.addEventListener('play', () => box.classList.add('playing')); })();
+  </script>
+</div></section>
 
 <section id="early"><div class="wrap">
   <span class="eyebrow">Why early matters</span>

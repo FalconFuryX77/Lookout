@@ -7,6 +7,9 @@ A local, near-real-time job scanner that watches freshly funded startups, dedupl
 
 <p align="center"><a href="https://falconfuryx77.github.io/lookout/">Website</a> · <a href="https://github.com/FalconFuryX77/lookout/releases/latest">Download for Windows</a> · <a href="#browser-extension">Browser extension</a></p>
 
+<p align="center"><a href="https://falconfuryx77.github.io/lookout/#demo"><img src="docs/img/demo-poster.jpg" width="760" alt="Watch the two-minute demo of Lookout"></a><br>
+<sub>Two-minute demo, recorded in the real app with a made-up profile. <a href="docs/video/lookout-demo.mp4">Download the MP4</a></sub></p>
+
 ---
 
 ## Contents
