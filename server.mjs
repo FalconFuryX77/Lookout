@@ -15,7 +15,7 @@ import { FUNDING_FEEDS, fetchFundingFeed, fetchRecentYc, fetchYcHiring, guessWeb
 import { fetchBoard, detectAts, detectInText, ATS_PROVIDERS } from './src/ats.mjs';
 import { discoverContacts, websiteFor, NOT_COMPANY_SITES } from './src/contacts.mjs';
 import { sendAlerts, testPush, resolveChannel } from './src/notify.mjs';
-import { DEFAULT_LINKEDIN_SEARCHES, LINKEDIN_ALERT_MAX_MIN } from './src/linkedin.mjs';
+import { DEFAULT_LINKEDIN_SEARCHES, LINKEDIN_ALERT_MAX_MIN, checkPosting, linkedinId } from './src/linkedin.mjs';
 import { resumeText, parseResume } from './src/resume.mjs';
 import { matches, effectiveTime, fundStageOf, normCo, mentionsIn, fit, overReach } from './public/filters.mjs';
 import { enrich } from './src/enrich.mjs';
@@ -109,6 +109,11 @@ function paced(ms) {
 const TIER_MS = { '1 min': 60e3, '2 min': 120e3, '3 min': 180e3, '10 min': 600e3, '15 min': 900e3, '30 min': 1800e3, '60 min': 3600e3, 'backing off': 6 * 36e5 };
 const fmtDur = ms => ms < 36e5 ? `${Math.round(ms / 6e4)} min` : ms >= 6 * 36e5 || ms % 36e5 === 0 ? `${Math.round(ms / 36e5)} h` : `${(ms / 36e5).toFixed(1)} h`;
 S.boards ||= {}; S.dynamicSources ||= []; S.discoveryLog ||= []; S.blockedCompanies ||= [];
+S.discoveryLog = S.discoveryLog.filter(l => l.text !== '0 boards and 0 lists').map(l => { // 2.4.1 logged imports that added nothing, and "and 0 lists"
+  const m = l.kind === 'source' && /^(\d+) boards and (\d+) lists$/.exec(l.text || ''); if (!m) return l;
+  const [b, n] = [Number(m[1]), Number(m[2])];
+  return { ...l, text: [b && `${b.toLocaleString('en-US')} board${b === 1 ? '' : 's'}`, n && `${n} list${n === 1 ? '' : 's'}`].filter(Boolean).join(' and ') };
+});
 // Profiles: several people (or several résumés) on one computer. The open profile's saved views, pipeline,
 // blocked companies and profile live in the usual places; the others wait in S.profiles until switched to.
 // Alerts keep going out for every profile's views, open or not.
@@ -388,9 +393,48 @@ function noteListing(b, posts, out) {
 }
 function announceClosed({ removed, updated }, label, by = 'employer') {
   if (!removed.length && !updated.length) return;
-  broadcast('jobs', { added: [], removed, updated: updated.map(slim) });
-  log(`${label}: ${removed.length} role(s) ${by === 'list' ? 'marked closed by the list' : 'taken down by their employer'} removed${updated.length ? `, ${updated.length} in a pipeline marked closed or reopened` : ''}`);
+  broadcast('jobs', { added: [], removed, updated: updated.map(slim), closedBy: by });
+  log(`${label}: ${removed.length} role(s) ${by === 'list' ? 'marked closed by the list' : by === 'linkedin' ? 'no longer taking applications on LinkedIn' : 'taken down by their employer'} removed${updated.length ? `, ${updated.length} in a pipeline marked closed or reopened` : ''}`);
   S.closedCount = (S.closedCount || 0) + removed.length;
+}
+
+// ---------------------------------------------------------------- LinkedIn roles that stop taking applications
+// A role found only on LinkedIn has no careers board to watch, so its LinkedIn posting is looked at again: a few
+// each pass, the ones in a pipeline first and then the longest unchecked, and straight away when someone opens it.
+const LI_RECHECK = 12 * 36e5, LI_OPENED_RECHECK = 30 * 60e3;
+const onlyLinkedIn = j => j.sources?.length && j.sources.every(s => s.source === 'linkedin');
+const liCursor = () => (S.sourceStatus.linkedin ||= { cursor: {}, runs: 0 }).cursor ||= {};
+const liChecked = () => liCursor().checkedAt ||= {};
+function linkedinDue(n) {
+  const seen = liChecked(); const now = Date.now(); const due = [];
+  for (const j of S.jobs) {
+    if (j.closedAt || !onlyLinkedIn(j)) continue;
+    const id = linkedinId(j.url); if (!id) continue;
+    const last = seen[id] || Date.parse(j.firstSeen) || 0;
+    if (now - last < LI_RECHECK) continue;
+    due.push([store.tracked(j.id) ? last - 30 * 864e5 : last, j.url]);
+  }
+  return due.sort((a, b) => a[0] - b[0]).slice(0, n).map(x => x[1]);
+}
+function noteLinkedInChecked(urls) {
+  const seen = liChecked(); const now = Date.now();
+  for (const u of urls) { const id = linkedinId(u); if (id) seen[id] = now; }
+  const keys = Object.keys(seen);
+  if (keys.length > 4000) { const live = new Set(S.jobs.filter(onlyLinkedIn).map(j => linkedinId(j.url))); for (const k of keys) if (!live.has(k)) delete seen[k]; }
+}
+/** Someone opened a LinkedIn-only role: if it has not been looked at in the last half hour, look now. */
+async function checkLinkedInNow(j) {
+  if (j.closedAt || !onlyLinkedIn(j)) return null;
+  const id = linkedinId(j.url); const seen = liChecked();
+  if (!id || Date.now() - (seen[id] || 0) < LI_OPENED_RECHECK) return null;
+  const open = await checkPosting(id, liCursor());
+  if (open === null) return null;
+  seen[id] = Date.now();
+  if (open) return null;
+  const out = { removed: [], updated: [] }; const r = store.closeJob(j, 'linkedin');
+  if (r === 'removed') out.removed.push(j.id); else if (r === 'marked') out.updated.push(j); else return null;
+  announceClosed(out, 'linkedin', 'linkedin');
+  return { closedAt: j.closedAt || new Date().toISOString(), closedBy: 'linkedin' };
 }
 
 // ---------------------------------------------------------------- scheduler
@@ -402,18 +446,20 @@ async function runSource(src) {
   const started = Date.now(); const bootstrapping = !st.runs;
   try {
     let postings;
-    try { postings = await src.run({ cursor: st.cursor ||= {}, settings: S.settings, known: u => { const c = canonicalUrl(u); return store.dedupe.byUrl.has(c) || store.gone.has(c) || store.offScope.has(c); } }); }
+    try { postings = await src.run({ cursor: st.cursor ||= {}, settings: S.settings, known: u => { const c = canonicalUrl(u); return store.dedupe.byUrl.has(c) || store.gone.has(c) || store.offScope.has(c); }, due: linkedinDue }); }
     catch (e) { if (!e.notModified) throw e; postings = []; } // feed unchanged since last check
     const fresh = await directLinks(await resolveRoots(await ingestAll(src.id, postings, bootstrapping)));
-    // A list marking a role closed is believed only when Lookout has no employer board of its own to check.
+    // A list marking a role closed is believed only when Lookout has no employer board of its own to check;
+    // LinkedIn saying a posting stopped taking applications, only for roles found on LinkedIn alone.
+    if (postings.checked?.length) noteLinkedInChecked(postings.checked);
     if (postings.closed?.length) {
-      const out = { removed: [], updated: [] };
+      const out = { removed: [], updated: [] }; const by = postings.closedBy || 'list';
       for (const u of postings.closed) {
         const id = store.dedupe.byUrl.get(canonicalUrl(u)); const j = id && store.byId.get(id);
-        if (!j || j.sources.some(s => s.source === 'ats')) continue;
-        const r = store.closeJob(j, 'list'); if (r === 'removed') out.removed.push(j.id); else if (r === 'marked') out.updated.push(j);
+        if (!j || (by === 'linkedin' ? !onlyLinkedIn(j) : j.sources.some(s => s.source === 'ats'))) continue;
+        const r = store.closeJob(j, by); if (r === 'removed') out.removed.push(j.id); else if (r === 'marked') out.updated.push(j);
       }
-      announceClosed(out, src.id, 'list');
+      announceClosed(out, src.id, by);
     }
     Object.assign(st, { ok: true, at: new Date().toISOString(), ms: Date.now() - started, fetched: postings.length, added: fresh.length, error: '' });
     if (postings.length) { st.dataRuns = (st.dataRuns || 0) + 1; st.seen = (st.seen || 0) + postings.length; st.unique = (st.unique || 0) + fresh.length; }
@@ -689,7 +735,8 @@ function importSources(text, label) {
     S.rejectedRepos = (S.rejectedRepos || []).filter(r => r !== repo.toLowerCase()); lists++;
   }
   S.settings.offSources = [...off];
-  S.discoveryLog.unshift({ at: new Date().toISOString(), kind: 'source', text: `${added} boards and ${lists} lists`, via: name });
+  const what = [added && `${added.toLocaleString('en-US')} board${added === 1 ? '' : 's'}`, lists && `${lists} list${lists === 1 ? '' : 's'}`].filter(Boolean).join(' and ');
+  if (what) S.discoveryLog.unshift({ at: new Date().toISOString(), kind: 'source', text: what, via: name }); // nothing new: nothing to tell
   store.touch(); nextAt.ats = 0;
   return { name, added, had, skipped, lists };
 }
@@ -877,7 +924,11 @@ async function route(req, res) {
     }
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); return res.end(body);
   }
-  if (m === 'GET' && p.startsWith('/api/job/')) { const j = store.byId.get(decodeURIComponent(p.slice(9))); return j ? json(res, 200, view(j)) : json(res, 404, { error: 'Not found' }); }
+  if (m === 'GET' && p.startsWith('/api/job/')) {
+    const j = store.byId.get(decodeURIComponent(p.slice(9))); if (!j) return json(res, 404, { error: 'Not found' });
+    const closed = await checkLinkedInNow(j).catch(() => null); // a LinkedIn-only role is looked at as it is opened
+    return json(res, 200, closed ? { ...view(j), ...closed } : view(j));
+  }
   if (m === 'GET' && p === '/api/meta') {
     const { ntfyToken, extKey, deviceKey, githubToken, ...settings } = S.settings;
     return json(res, 200, { sourceInfo: await sourcesInfo(), profiles: S.profiles.map(p => ({ id: p.id, label: p.label, active: p.id === S.activeProfile })), settings: { ...settings, profile: publicProfile(settings.profile), hasToken: !!ntfyToken, hasGithubToken: !!githubToken }, scanState: publicScanState(), updates: publicUpdates(), learn: S.settings.learn !== false, filterSets: S.filterSets, tracking: S.tracking, blockedCompanies: S.blockedCompanies, sources: sourcesMeta(), watch: S.watch, alerts: S.alerts.slice(0, 50), funding: S.funding.slice(0, 300), stats: { jobs: S.jobs.length, companies: Object.keys(S.companies).length, boards: boards().length, funded: Object.values(S.companies).filter(c => fundingInfo(c)).length } });

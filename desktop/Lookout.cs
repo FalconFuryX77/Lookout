@@ -59,6 +59,7 @@ namespace Lookout
                 Width = 1420,
                 Height = 920,
                 MinimumSize = new Size(720, 620),
+                WindowState = FormWindowState.Maximized, // always opens filling the screen
                 BackColor = Color.FromArgb(9, 9, 11),
                 ShowInTaskbar = !startHidden
             };
@@ -92,6 +93,19 @@ namespace Lookout
             try
             {
                 await _browser.EnsureCoreWebView2Async();
+                // Links never open a second Lookout window: listings, company pages and email go to the
+                // default browser and mail app. Only Lookout's own pages stay in this window.
+                _browser.CoreWebView2.NewWindowRequested += (sender, e) =>
+                {
+                    e.Handled = true;
+                    OpenOutside(e.Uri);
+                };
+                _browser.CoreWebView2.NavigationStarting += (sender, e) =>
+                {
+                    if (!IsOutsideLink(e.Uri)) return;
+                    e.Cancel = true;
+                    OpenOutside(e.Uri);
+                };
                 _browser.CoreWebView2.NavigateToString(LoadingHtml);
                 // Reuse a scanner that is already running (second launch, or started elsewhere).
                 if (!await IsServerReadyAsync())
@@ -106,6 +120,27 @@ namespace Lookout
                 MessageBox.Show("Lookout could not start the scanner.\r\n\r\n" + ex.Message, "Lookout", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 ExitApp();
             }
+        }
+
+        // A web or mail link that is not one of Lookout's own pages.
+        private static bool IsOutsideLink(string uri)
+        {
+            Uri u;
+            if (!Uri.TryCreate(uri, UriKind.Absolute, out u)) return false;
+            if (u.Scheme == Uri.UriSchemeMailto) return true;
+            if (u.Scheme != Uri.UriSchemeHttp && u.Scheme != Uri.UriSchemeHttps) return false; // the loading screen, about:blank
+            bool local = u.IsLoopback && u.Port == 4173;
+            return !local;
+        }
+
+        private void OpenOutside(string uri)
+        {
+            Uri u;
+            if (!Uri.TryCreate(uri, UriKind.Absolute, out u)) return;
+            if (u.Scheme != Uri.UriSchemeHttp && u.Scheme != Uri.UriSchemeHttps && u.Scheme != Uri.UriSchemeMailto) return;
+            if (!IsOutsideLink(uri)) { _browser.CoreWebView2.Navigate(uri); return; } // one of Lookout's own pages: keep it here
+            try { Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true }); } // as the page wrote it, so a mail's subject and body stay intact
+            catch (Exception ex) { Log("Could not open " + u.Host + ": " + ex.Message); }
         }
 
         private static async Task<bool> IsServerReadyAsync()
@@ -190,7 +225,7 @@ namespace Lookout
         private void ShowWindow()
         {
             _form.ShowInTaskbar = true;
-            if (_form.WindowState == FormWindowState.Minimized) _form.WindowState = FormWindowState.Normal;
+            _form.WindowState = FormWindowState.Maximized; // reopened from the tray: full screen again
             _form.Show();
             _form.Activate();
         }

@@ -279,7 +279,7 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>Download for Windows</a>
     <a class="btn" href="https://github.com/FalconFuryX77/Lookout">View the source</a>
   </div>
-  <p class="fine">Free. Windows 10 or 11. Needs Node.js 20 or newer. No account, no sign-up.</p>
+  <p class="fine">Free. Windows 10 or 11; Node.js comes with it. No account, no sign-up.</p>
 
   <figure class="stage">
     <div class="shot">
@@ -297,7 +297,7 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
         </picture>
         <picture data-shot="role">
           <source media="(prefers-color-scheme: light)" data-srcset="img/role-light.webp">
-          <img data-src="img/role-dark.webp" width="2880" height="1800" alt="A Software Engineer Intern role open in Lookout: a score of 80, strong match, with 6 of the 8 skills it names; when it was posted and how soon Lookout found it; a contact email; and the steps from Saved to Interviewing.">
+          <img data-src="img/role-dark.webp" width="2880" height="1800" alt="A Software Engineering Intern role open in Lookout: a score of 86, strong match, with 9 of the 12 skills it names; posted 11 hours ago and found 34 minutes after posting; no experience needed; its requirements; and its skills, with the ones on the profile picked out.">
         </picture>
         <picture data-shot="pipeline">
           <source media="(prefers-color-scheme: light)" data-srcset="img/pipeline-light.webp">
@@ -367,7 +367,7 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
     </div>
     <div class="tile" data-rv>
       <h3>Matched to you</h3>
-      <p>Every role gets a score from the skills your résumé, LinkedIn and GitHub show.</p>
+      <p>Every role gets a score from the skills your résumé, LinkedIn and GitHub show. Sort by best match, or by best chance: match and freshness together.</p>
       <div class="vis matchv"><span class="num"><svg width="62" height="62" viewBox="0 0 62 62"><circle cx="31" cy="31" r="27" fill="none" stroke="var(--line2)" stroke-width="6"/><circle cx="31" cy="31" r="27" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-dasharray="119 170" transform="rotate(-90 31 31)"/></svg><b>70</b></span><div class="chips"><span class="y">Python</span><span class="y">FastAPI</span><span class="y">Docker</span><span class="y">PostgreSQL</span><span>Kafka</span><span>Go</span></div></div>
     </div>
     <div class="tile" data-rv style="--rd:.08s">
@@ -426,7 +426,7 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
   <figure data-rv class="shot wide">
     <picture>
       <source media="(prefers-color-scheme: light)" srcset="img/sources-light.webp">
-      <img src="img/sources-dark.webp" width="2880" height="1800" loading="lazy" alt="The Sources page: 2,186 company boards, a bar showing how often they are checked, where they were found, and a list of boards discovered in the last few minutes.">
+      <img src="img/sources-dark.webp" width="2880" height="1800" loading="lazy" alt="The Sources page: about 6,170 company boards checked every 1 to 60 minutes, a bar showing how often each is checked, where they came from (most from the starter list and the YC directory), and boards discovered in the last few minutes.">
     </picture>
   </figure>
   <div class="grid">
@@ -479,8 +479,9 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
       <li><span><b>Reads PDF, Word or pasted text.</b> Skills, education, internships, jobs and projects with their tech stacks.</span></li>
       <li><span><b>Technical skills come first.</b> Languages, frameworks and tools drive the match. Words like “Operations” and “Communication” are kept, quietly.</span></li>
       <li><span><b>Shows the gap.</b> Each role tells you which of its skills you have and which you're missing.</span></li>
+      <li><span><b>Three ways to sort.</b> Newest; best match, newest first among equal scores; and best chance, which weighs your match against how early you would be, so a good match posted an hour ago comes before a perfect one from last week.</span></li>
       <li><span><b>Scans your links.</b> Reads your GitHub repositories (languages, libraries, Docker and CI files) and your site, rates each skill strong, working or familiar, and suggests ones your work shows but your résumé doesn't list. Nothing is added without you.</span></li>
-      <li><span><b>Learns what you go for.</b> Best match leans toward roles like the ones you save and apply to, and away from ones you hide.</span></li>
+      <li><span><b>Learns what you go for.</b> Best chance leans toward roles like the ones you save and apply to, and away from ones you hide.</span></li>
       <li><span><b>Several profiles.</b> One per person sharing the computer, or one per kind of role you're going for, each with its own views and pipeline.</span></li>
     </ul>
   </div>
@@ -529,7 +530,9 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
     <details><summary>Does my computer have to stay on?</summary><p>Yes. Lookout scans only while it is running, so roles posted while your computer is asleep are found when it wakes up. A slower sweep of the last day catches those, but the alert will be later.</p></details>
     <details><summary>What do I need installed?</summary><p>Just Windows 10 or 11. Lookout brings its own copy of Node.js, so there is nothing else to install; the Edge WebView2 runtime it uses is already on Windows 11. To run it from source on a Mac or Linux, you need Node.js 22.13 or newer.</p></details>
     <details><summary>Is it only for computer science?</summary><p>That is what it is built for: software, AI, data, security, infrastructure, robotics, embedded, chips, quant, and new niches as they appear, recognised by the skills a posting asks for. Other fields are skipped unless you choose "Every field" in Settings.</p></details>
-    <details><summary>Does it show fake or closed listings?</summary><p>Far fewer. Lookout reads each company's own careers board, so when a role is taken down it disappears within about 20 minutes, and copies of it on other sites stay out. Talent pools, general applications and roles taken down then posted again are hidden, with the reason. Nobody outside a company can be sure a listing is real, so these are labels you can see, never silent guesses.</p></details>
+    <details><summary>Will it keep up with new kinds of work?</summary><p>It is built to. A role counts as computing when the posting asks for several technical skills, so a niche that does not exist yet still gets in on the Python, C++ or CUDA it asks for. The Signals page shows which niches companies are hiring for, learned from role titles rather than a fixed list. Once a day Lookout also picks up the project's board list, rebuilt every month from Common Crawl, and words for new kinds of work, and it tells you when a new version is out.</p></details>
+    <details><summary>Can I back it up or move it to another computer?</summary><p>Yes. Settings → Your data → Back up everything gives you one file with your roles, pipeline, notes, profiles, boards and settings. Put it in the new copy's <code>data</code> folder as <code>lookout.db</code> before opening Lookout. To share only your boards with a friend, use Settings → Sources → Share your list.</p></details>
+    <details><summary>Does it show fake or closed listings?</summary><p>Far fewer. Lookout reads each company's own careers board, so when a role is taken down it disappears within about 20 minutes, and copies of it on other sites stay out. A role found only on LinkedIn is looked at again about twice a day, and when you open it; once LinkedIn stops taking applications for it, it goes too. Talent pools, general applications and roles taken down then posted again are hidden, with the reason. Nobody outside a company can be sure a listing is real, so these are labels you can see, never silent guesses.</p></details>
     <details><summary>Is it really free?</summary><p>Yes, and open source under the AGPL-3.0 license. Phone alerts use ntfy, which is also free. Nothing in Lookout costs money or needs a paid key.</p></details>
     <details><summary>Is reading LinkedIn allowed?</summary><p>Lookout reads LinkedIn's public job search, the pages anyone sees logged out, gently and without an account. Automated access is still against LinkedIn's terms of use, so that source is your call: clear the box in Settings and it is off.</p></details>
     <details><summary>What does the browser extension need?</summary><p>Edge or Chrome. It comes in the download's <code>extension</code> folder: turn on Developer mode on the extensions page, choose Load unpacked, then paste the pairing key from Lookout's Settings. It reads a page only when you click its button.</p></details>

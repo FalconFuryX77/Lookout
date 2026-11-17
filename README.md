@@ -70,7 +70,8 @@ Get the latest Windows build from the [Releases page](https://github.com/FalconF
 
 Double-click **`Lookout.exe`**, or the **Lookout** shortcut on your Desktop.
 
-- It shows "Starting Lookout…" while the scanner loads your saved data (a few seconds), then opens the app.
+- It shows "Starting Lookout…" while the scanner loads your saved data (a few seconds), then opens the app, filling the screen.
+- Listings, company pages and other links open in your default browser, and email drafts in your mail app, never in a second Lookout window.
 - Closing the window keeps scanning in the background. Use the tray icon to reopen it, or **Exit Lookout** to stop.
 - To put shortcuts on the Desktop and start Lookout automatically at sign-in, run once:
 
@@ -100,7 +101,7 @@ Lookout only scans while it's running, so keep the computer awake if you want ar
 
 ### LinkedIn
 
-Lookout reads LinkedIn's **public** job search, the pages anyone sees logged out. It needs no account, cookie or password, and none is ever stored. Set your searches in **Settings → LinkedIn searches**, one per line as `keywords | location` (add `| remote` for remote-only). It checks every 4 minutes, asks only for roles posted in the last 3 hours, and reads the newest first, so a new role usually shows up within minutes of LinkedIn listing it. A slower sweep of the last day (about every half hour) fills in anything posted while your computer was off. Each new role's full description is fetched once.
+Lookout reads LinkedIn's **public** job search, the pages anyone sees logged out. It needs no account, cookie or password, and none is ever stored. Set your searches in **Settings → LinkedIn searches**, one per line as `keywords | location` (add `| remote` for remote-only). It checks every 4 minutes, asks only for roles posted in the last 3 hours, and reads the newest first, so a new role usually shows up within minutes of LinkedIn listing it. A slower sweep of the last day (about every half hour) fills in anything posted while your computer was off. Each new role's full description is fetched once; a role that is already closed when it is found is skipped. Roles found only on LinkedIn are looked at again from time to time, so one that stops taking applications leaves the list (see [Listings that may not be real](#listings-that-may-not-be-real)).
 
 Phone alerts for LinkedIn are only sent for roles posted in the last two hours; older ones still appear in the app. Each alert says how old the posting was when it was sent ("Posted 12 min ago").
 
@@ -272,6 +273,7 @@ The Windows app also remembers UI preferences, such as your current filters and 
 Job sites are full of listings that are not open roles: postings left up after the job was filled, "talent community" pages, general applications, roles taken down and put up again to look fresh. Lookout keeps them out in two ways.
 
 - **Taken down by the employer.** Lookout reads each company's own careers board every 1 to 60 minutes, and Greenhouse, Lever, Ashby, Workable, Recruitee and YC hand over every open role at once. A role missing from its board on two reads at least 20 minutes apart has been taken down: it leaves Lookout, and copies of it on community lists and job boards are kept out for 60 days. (Most of a board vanishing at once looks more like an outage, so that waits three hours.) Roles in your pipeline stay, marked **Closed**. A community list marking a role closed counts too, when Lookout has no board of its own to check.
+- **No longer accepting applications on LinkedIn.** A role found only on LinkedIn has no careers board to watch, so Lookout looks at its public LinkedIn posting again: a few roles every pass (about 60 an hour, your pipeline first, every role about twice a day), and straight away when you open one it has not looked at in the last half hour. A posting that has lost its Apply and Save buttons has stopped taking applications, and the role leaves the list the same way. If LinkedIn ever changes its pages so that no posting shows Apply, Lookout decides nothing until it sees one again.
 - **Labelled and hidden.** A posting that reads like a talent pool or a general application, or one the employer took down and then posted again, is marked **May not be a real opening** with the reason, kept out of alerts, and hidden from the list. The end of the list says how many were hidden; **Show them** (or Filters → More → *Show listings that may not be a real opening*) brings them back. Being open for weeks, or the same title in several offices, is normal and never earns the label on its own.
 
 Nobody outside a company can know for sure that a listing is not real, so nothing is deleted on a guess: every label says why.
@@ -387,8 +389,8 @@ npm start                     # run the scanner + UI on http://127.0.0.1:4173
 
 | Problem | Fix |
 |---|---|
-| The window stays on "Starting Lookout…" or shows an error | Check `lookout-desktop.log` next to `Lookout.exe`. The usual causes are Node.js not installed or port 4173 in use. |
-| "Node.js 20 or newer was not found" | Install Node.js LTS from nodejs.org, then reopen Lookout. |
+| The window stays on "Starting Lookout…" or shows an error | Check `lookout-desktop.log` next to `Lookout.exe`. The usual causes are a missing `runtime` folder or port 4173 in use. |
+| "Node.js was not found" | The `runtime` folder that comes with Lookout is missing. Unzip the download again, keeping every folder, or install Node.js 22.13 or newer. |
 | Port 4173 is already in use | Another Lookout is probably running (check the tray). The app reuses it. Otherwise set `PORT`. |
 | No phone alerts | Send a test push from Settings. Check the view's bell is on and quiet hours aren't active. |
 | A role is classified wrongly | The rules are in `src/taxonomy.mjs`. Exclude it with a keyword, or hide the company. |

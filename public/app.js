@@ -510,6 +510,11 @@ function factsFor(j) {
   if (j.teamSize) add('Team', `${fmt(j.teamSize)} people`);
   return out.join('');
 }
+const CLOSED_WHY = {
+  employer: { title: 'Taken down by the employer', why: 'It is no longer on the company’s own careers site', tag: 'No longer on the company’s own careers site' },
+  list: { title: 'Marked closed', why: 'The job list it came from marked it closed', tag: 'Marked closed by the job list it came from' },
+  linkedin: { title: 'No longer accepting applications', why: 'LinkedIn says the employer has stopped taking applications', tag: 'No longer accepting applications on LinkedIn' },
+};
 function renderDetail(j) {
   const d = $('#detail'); const tr = S.meta.tracking[j.id] || {}; const p = profile();
   const mine = new Set((p.skills || []).map(s => s.toLowerCase()));
@@ -524,7 +529,7 @@ function renderDetail(j) {
     ${j.middleman ? `<p class="mid">${ic('layers')}<span>Re-posted by <b>${esc(j.company)}</b>${j.middleman.employer ? ` for <b>${esc(j.middleman.employer)}</b>` : ''}. The original listing was not found, so Apply goes through them. <a class="link" href="https://www.google.com/search?q=${encodeURIComponent(`${j.middleman.employer || ''} careers "${j.title.replace(/\s*\(.*?\)\s*/g, ' ').trim()}"`)}" target="_blank" rel="noreferrer">Search for the original</a></span></p>` : ''}
     ${j.reposts?.length ? `<p class="mid ok">${ic('layers')}<span>This is the employer's own listing. Also re-posted by ${j.reposts.map(r => esc(r.company)).join(', ')}; those copies are folded in here.</span></p>` : ''}
     <div class="d-actions">
-      <a class="btn primary lg" id="dApply" href="${esc(apply)}" target="_blank" rel="noreferrer" title="Open the listing (Enter)">Apply ${ic('external')}</a>
+      <a class="btn ${j.closedAt ? '' : 'primary '}lg" id="dApply" href="${esc(apply)}" target="_blank" rel="noreferrer" title="Open the listing (Enter)">Apply ${ic('external')}</a>
       <button class="btn lg" id="dSave" title="Save (S)">${saveBtnHtml(tr.status === 'saved')}</button>
       <button class="btn lg" id="dDraft" title="Draft an outreach email (E)">${ic('mail')}Email</button>
       <span class="spacer"></span>
@@ -533,7 +538,8 @@ function renderDetail(j) {
     </div>
   </div>
   <div class="d-body">
-    ${j.closedAt ? `<div class="closedcard">${ic('x')}<div><b>${j.closedBy === 'list' ? 'Marked closed' : 'Taken down by the employer'}</b><span>${j.closedBy === 'list' ? 'The job list it came from marked it closed' : 'It is no longer on the company’s own careers site'} (noticed ${esc(agoLong(Date.parse(j.closedAt)))}). It stays in your pipeline; Apply may no longer work.</span></div></div>` : ''}
+    ${j.closedAt ? (() => { const c = CLOSED_WHY[j.closedBy] || CLOSED_WHY.employer; const kept = !!(tr.status || tr.hidden);
+      return `<div class="closedcard">${ic('x')}<div><b>${c.title}</b><span>${c.why} (noticed ${esc(agoLong(Date.parse(j.closedAt)))}). ${kept ? 'It stays in your pipeline; Apply may no longer work.' : 'It has left your list.'}</span></div></div>`; })() : ''}
     ${j.doubt ? `<div class="doubtcard ${j.doubt.level}">${ic('eyeoff')}<div><b>May not be a real opening</b>${j.doubt.reasons.map(r => `<span>${esc(r)}</span>`).join('')}</div></div>` : ''}
     ${(() => { const ft = fitOf(j); if (!ft) return '';
       const warn = overReachNote(j, p, ft);
@@ -1056,7 +1062,7 @@ function renderPipeline() {
     return `<article class="pcard ${stale ? 'stale' : ''}" draggable="true" data-id="${id}" tabindex="0">
       <div class="pc-top">${logo(j.company, j.domain)}<div class="pc-main"><b>${esc(j.title)}</b><span>${esc(j.company)}${locShort(j) ? ` · ${esc(locShort(j))}` : ''}</span></div></div>
       ${t.note ? `<p class="pc-note">${esc(t.note.slice(0, 140))}</p>` : ''}
-      <div class="pc-foot"><span>${esc(statusLabel(t.status))} ${esc(agoLong(Date.parse(t.at)))}</span>${j.closedAt ? '<span class="tag closed" title="No longer on the company’s own careers site">Closed</span>' : stale ? '<span class="tag warn">Follow up?</span>' : ''}</div></article>`;
+      <div class="pc-foot"><span>${esc(statusLabel(t.status))} ${esc(agoLong(Date.parse(t.at)))}</span>${j.closedAt ? `<span class="tag closed" title="${(CLOSED_WHY[j.closedBy] || CLOSED_WHY.employer).tag}">Closed</span>` : stale ? '<span class="tag warn">Follow up?</span>' : ''}</div></article>`;
   };
   $('#kanban').innerHTML = shown.length || hidden.length ? STATUSES.map(([st, label]) => {
     const items = shown.filter(x => x.t.status === st).sort((a, b) => Date.parse(b.t.at) - Date.parse(a.t.at));
@@ -1566,7 +1572,7 @@ function connect() {
   es.onerror = () => { S.connected = false; wasDown = true; renderEngine(); };
   es.addEventListener('ping', () => { lastBeat = Date.now(); sawPing = true; });
   es.addEventListener('jobs', e => {
-    const { added = [], removed = [], updated = [], resync: again, quiet } = JSON.parse(e.data);
+    const { added = [], removed = [], updated = [], resync: again, quiet, closedBy } = JSON.parse(e.data);
     if (again) { resync(); return; }
     // New roles arrive one board at a time, up to a hundred a minute while new boards are first read. They are
     // gathered and shown together; roles already on a board Lookout reads for the first time are not news, so
@@ -1580,7 +1586,12 @@ function connect() {
       const gone = new Set(removed); const upd = new Map(updated.map(j => [j.id, j]));
       S.jobs = S.jobs.filter(j => !gone.has(j.id)).map(j => upd.has(j.id) ? { ...j, ...upd.get(j.id) } : j);
       S.pending = S.pending.filter(id => !gone.has(id)); evCache = null;
-      if (S.sel && gone.has(S.sel) && S.view === 'jobs') { S.sel = null; detailEmpty(); }
+      if (S.sel && gone.has(S.sel) && S.view === 'jobs') {
+        // The role being read just closed: it stays on screen, marked closed, until the reader moves on. (If it is
+        // still loading, the answer that arrives already says so.)
+        if (closedBy) { if (S.detailJob?.id === S.sel && !S.detailJob.closedAt) renderDetail({ ...S.detailJob, closedAt: new Date().toISOString(), closedBy }); }
+        else { S.sel = null; detailEmpty(); }
+      }
       else if (S.sel && upd.has(S.sel) && S.detailJob) select(S.sel);
       if (S.view === 'jobs') renderList(); else if (S.view === 'pipeline') renderPipeline();
       renderQuick(); renderViews();
