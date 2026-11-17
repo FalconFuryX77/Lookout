@@ -164,7 +164,7 @@ function model() {
 }
 function filtered() {
   const out = [...ev().matched];
-  if (S.sort === 'best') { const p = profile(); const now = Date.now(); const m = model(); const sc = new Map(out.map(j => [j.id, score(j, p, now) + learnedBoost(m, j, p) * 20])); out.sort((a, b) => sc.get(b.id) - sc.get(a.id)); }
+  if (S.sort === 'best') { const p = profile(); const now = Date.now(); const m = model(); const tr = S.meta?.tracking || {}; const done = id => { const st = tr[id]?.status; return st && st !== 'saved' ? 1000 : 0; }; const sc = new Map(out.map(j => [j.id, score(j, p, now) + learnedBoost(m, j, p) * 20 - done(j.id)])); out.sort((a, b) => sc.get(b.id) - sc.get(a.id)); }
   else out.sort((a, b) => effectiveTime(b) - effectiveTime(a));
   return out;
 }
@@ -265,8 +265,21 @@ function pillsFor(j) {
   const order = ['fund', 'visa', 'pay', 'yrs', 'mode'];
   return order.map(k => p[k]).filter(Boolean).join('');
 }
+// A small progress ring: how much of what a role asks for you have.
+function ring(pct, size = 26, stroke = 3) {
+  const r = (size - stroke) / 2, c = 2 * Math.PI * r, h = size / 2;
+  return `<svg class="ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true"><circle cx="${h}" cy="${h}" r="${r}" class="ring-bg" stroke-width="${stroke}"/><circle cx="${h}" cy="${h}" r="${r}" class="ring-fg" stroke-width="${stroke}" stroke-dasharray="${(c * Math.min(100, pct) / 100).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${h} ${h})"/></svg>`;
+}
+/** How a role fits the open profile, or null when there is nothing to compare (no skills on either side). */
+function fitOf(j) {
+  const p = profile(); if (!p.skills?.length || !j.skills?.length) return null;
+  const ft = fit(j, p); const n = ft.have.length + ft.missing.length; if (!n) return null;
+  const thin = n < 3; // one or two skills named: too little to call it a match either way
+  return { ...ft, n, thin, word: thin ? 'Names few skills' : ft.pct >= 75 ? 'Strong match' : ft.pct >= 50 ? 'Good match' : ft.pct >= 25 ? 'Partial match' : 'Few skills in common' };
+}
 function rowHtml(j, { arrive = false } = {}) {
-  const tr = S.meta?.tracking?.[j.id]; const pills = pillsFor(j); const loc = locShort(j);
+  const tr = S.meta?.tracking?.[j.id]; const pills = pillsFor(j); const loc = locShort(j); const ft = fitOf(j);
+  const saved = tr?.status === 'saved';
   return `<div class="row ${S.sel === j.id ? 'sel' : ''} ${isHot(j) ? 'hot' : ''} ${arrive ? 'arrive' : ''}" data-id="${j.id}" role="option">
     ${logo(j.company, j.domain)}
     <div class="r-main">
@@ -274,26 +287,44 @@ function rowHtml(j, { arrive = false } = {}) {
       <div class="r-sub"><span class="r-co">${esc(j.company)}</span>${loc ? `<span class="r-loc">${esc(loc)}</span>` : ''}</div>
       ${pills ? `<div class="r-pills">${pills}</div>` : ''}
     </div>
-    <div class="r-right"><span class="t-time">${when(j)}</span>${tr?.status ? `<span class="r-flag">${esc(statusLabel(tr.status))}</span>` : ''}</div></div>`;
+    <div class="r-right"><span class="t-time">${when(j)}</span>${tr?.status ? `<span class="r-flag st-${esc(tr.status)}">${esc(statusLabel(tr.status))}</span>` : ft && !ft.thin && ft.pct >= 40 ? `<span class="r-fit ${ft.pct >= 75 ? 'hi' : ''}" title="${esc(`${ft.word}: you have ${ft.have.length} of ${ft.n} skills`)}">${ring(ft.pct, 22, 2.5)}<b>${ft.pct}</b></span>` : ''}</div>
+    <div class="r-acts"><button data-act="save" class="${saved ? 'on' : ''}" title="${saved ? 'Saved. Click to remove' : 'Save (S)'}" aria-label="Save">${ic('bookmark')}</button><button data-act="hide" title="Hide (X)" aria-label="Hide">${ic('eyeoff')}</button></div></div>`;
 }
+// Newest first is grouped by how fresh a role is, so "what came in while I was away" reads at a glance.
+const GROUPS = [['hour', 'Last hour', 36e5], ['day', 'Today', 864e5], ['week', 'This week', 7 * 864e5], ['older', 'Earlier', Infinity]];
+const groupOf = (j, now) => { const { t, kind } = freshness(j); const age = now - t; if (age < 36e5) return kind === 'exact' ? 'hour' : 'day'; return GROUPS.find(g => age < g[2])[0]; };
 let current = [];
 function renderList(arriveIds = new Set()) {
   evCache = null; current = filtered();
   $('#viewCount').textContent = fmt(current.length);
-  $('#list').innerHTML = current.length
-    ? current.slice(0, S.limit).map(j => rowHtml(j, { arrive: arriveIds.has(j.id) })).join('') + (current.length > S.limit ? '<button class="btn more" id="more">Show more</button>' : '')
-    : `<div class="empty"><div class="empty-in"><img src="/logo.svg" width="44" alt=""><h3>Nothing matches</h3>${chipList().length ? '<button class="btn" id="emptyClear">Clear filters</button>' : '<p>New roles show up here as they’re found.</p>'}</div></div>`;
+  let html = '';
+  if (current.length) {
+    const now = Date.now(); const grouped = S.sort === 'new'; let last = '';
+    const counts = {}; if (grouped) { const bk = { hour: [], day: [], week: [], older: [] }; for (const j of current) bk[groupOf(j, now)].push(j); current = [...bk.hour, ...bk.day, ...bk.week, ...bk.older]; for (const k in bk) counts[k] = bk[k].length; }
+    for (const j of current.slice(0, S.limit)) {
+      if (grouped) { const g = groupOf(j, now); if (g !== last) { last = g; html += `<div class="grp" data-g="${g}"><span>${GROUPS.find(x => x[0] === g)[1]}</span><b>${fmt(counts[g])}</b></div>`; } }
+      html += rowHtml(j, { arrive: arriveIds.has(j.id) });
+    }
+    if (current.length > S.limit) html += `<button class="btn more" id="more">Show ${fmt(Math.min(300, current.length - S.limit))} more</button>`;
+  } else html = `<div class="empty"><div class="empty-in"><img src="/logo.svg" width="44" alt=""><h3>Nothing matches</h3>${chipList().length ? '<p>Loosen a filter, or clear them all.</p><button class="btn" id="emptyClear">Clear filters</button>' : '<p>New roles show up here as they’re found.</p>'}</div></div>`;
+  $('#list').innerHTML = html;
   hydrateIcons($('#list'));
   $('#more')?.addEventListener('click', () => { S.limit += 300; renderList(); });
   $('#emptyClear')?.addEventListener('click', () => { S.activeView = null; $('#q').value = ''; setFilters({ ...EMPTY_FILTERS }); });
   $('#nJobs').textContent = fmt(S.jobs.length);
   S.pending = []; updatePill();
+  if (!S.sel) renderBriefing();
 }
 const list = $('#list');
-list.addEventListener('click', e => { const r = e.target.closest('.row'); if (r) select(r.dataset.id, true); });
+list.addEventListener('click', e => {
+  const r = e.target.closest('.row'); if (!r) return;
+  const a = e.target.closest('[data-act]');
+  if (a) { const id = r.dataset.id; if (a.dataset.act === 'save') track(id, S.meta.tracking[id]?.status === 'saved' ? '' : 'saved'); else quickHide(id); return; }
+  select(r.dataset.id, true);
+});
 list.addEventListener('mousemove', e => { const r = e.target.closest('.row'); if (!r) return; const b = r.getBoundingClientRect(); r.style.setProperty('--mx', `${e.clientX - b.left}px`); r.style.setProperty('--my', `${e.clientY - b.top}px`); });
 list.addEventListener('mouseleave', () => $$('.row', list).forEach(r => r.style.removeProperty('--mx')));
-function updatePill() { const n = S.pending.length; const p = $('#newPill'); p.classList.toggle('hidden', !n); p.textContent = `${n} new · show`; document.title = n ? `(${n}) Lookout` : 'Lookout'; }
+function updatePill() { const n = S.pending.length; const p = $('#newPill'); p.classList.toggle('hidden', !n); p.innerHTML = `<span class="np-dot"></span><b>${fmt(n)} new role${n === 1 ? '' : 's'}</b><span>Show</span>`; document.title = n ? `(${n}) Lookout` : 'Lookout'; }
 $('#newPill').onclick = () => {
   const ids = new Set(S.pending); renderList(ids);
   const idx = current.findIndex(j => ids.has(j.id));
@@ -316,16 +347,107 @@ $('#q').addEventListener('keydown', e => { if (e.key === 'Escape') { e.target.va
 // ───────────────────────────────────────────── detail
 const STATUSES = [['saved', 'Saved'], ['applied', 'Applied'], ['contacted', 'Contacted'], ['interview', 'Interviewing'], ['rejected', 'Closed']];
 const statusLabel = s => (STATUSES.find(x => x[0] === s) || [s, s === 'hidden' ? 'Hidden' : s])[1];
-function detailEmpty() {
-  $('#detail').classList.remove('open');
-  $('#detail').innerHTML = '<div class="d-empty"><div><img src="/logo.svg" width="48" alt=""><p>Pick a role</p></div></div>';
+function detailEmpty() { $('#detail').classList.remove('open'); S.detailJob = null; renderBriefing(); }
+
+// ── the briefing: what the right-hand side shows while no role is open ──
+const hash32 = s => { let h = 2166136261; for (const c of String(s)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
+/** What is left to set up, in the order that pays off soonest. */
+function setupSteps() {
+  const p = profile(), s = S.meta?.settings || {}, views = S.meta?.filterSets || [];
+  return [
+    { label: 'Import your résumé', hint: 'So every role shows which of its skills you have', done: !!p.resume || (p.skills || []).length >= 5, go: () => { location.hash = '#settings'; } },
+    { label: 'Scan your GitHub or site', hint: 'Finds skills your résumé leaves out', done: !!p.scan?.at, go: () => { location.hash = '#settings'; setTimeout(() => $('#scanBox')?.scrollIntoView({ block: 'center' }), 120); } },
+    { label: 'Save a view', hint: 'Set filters for the roles you want, then save them', done: views.length > 0, go: () => openSheet() },
+    { label: 'Connect your phone', hint: 'Free alerts through the ntfy app', done: !!s.ntfyTopic, go: () => { location.hash = '#settings'; setTimeout(() => $('#pushForm')?.scrollIntoView({ block: 'start' }), 120); } },
+    { label: 'Turn on a view’s bell', hint: 'New matches then reach your phone', done: views.some(v => v.alert), go: () => { const v = views[0]; v ? openBell(v) : openSheet(); } },
+  ];
 }
+let briefMemo = { sig: '', data: null };
+function briefingData() {
+  const tr = S.meta?.tracking || {}; const p = profile();
+  const sig = `${current.length}|${current[0]?.id}|${p.skills?.length || 0}|${Object.keys(p.strength || {}).length}|${Object.keys(tr).length}|${Math.floor(Date.now() / 6e4)}`;
+  if (briefMemo.sig === sig) return briefMemo.data;
+  const now = Date.now(); let hour = 0, day = 0; const blips = [], scored = [];
+  for (const j of current) {
+    const f = freshness(j); if (f.kind === 'unknown') continue; const age = now - f.t;
+    if (f.kind === 'exact' && age < 36e5) { hour++; if (blips.length < 14) blips.push(j.id); }
+    if (age < 864e5) day++;
+  }
+  for (const j of current.slice().sort((a, b) => effectiveTime(b) - effectiveTime(a)).slice(0, 1500)) {
+    if (now - effectiveTime(j) > 7 * 864e5) break;
+    if (tr[j.id]?.status || tr[j.id]?.hidden) continue;
+    const ft = fitOf(j); if (ft && ft.n >= 4 && ft.pct >= 50 && ft.expGap < 1) scored.push([j, ft]);
+  }
+  scored.sort((a, b) => (b[1].pct - a[1].pct) || (b[1].have.length - a[1].have.length) || (effectiveTime(b[0]) - effectiveTime(a[0])));
+  const stale = Object.entries(tr).filter(([, t]) => ['applied', 'contacted'].includes(t.status) && now - Date.parse(t.at) > 7 * 864e5).length;
+  briefMemo = { sig, data: { hour, day, strong: scored.filter(x => x[1].pct >= 75).length, best: scored.slice(0, 4), blips, stale } };
+  return briefMemo.data;
+}
+function renderBriefing() {
+  const d = $('#detail'); if (S.sel || !d) return;
+  if (!S.meta || !S.jobs.length) { d.innerHTML = '<div class="brief"><div class="brief-load"><span class="spin"></span></div></div>'; return; }
+  const b = briefingData(); const p = profile(); const hasSkills = (p.skills || []).length > 0;
+  const view = S.meta.filterSets.find(x => x.id === S.activeView); const scope = view ? view.name : activeCount() ? 'your filters' : 'everything Lookout has';
+  const src = S.meta.sources || []; const boards = src.find(s => s.id === 'ats')?.boards || 0;
+  const state = !S.connected ? 'Offline' : src.some(s => s.running) ? 'Scanning' : 'Live'; S.briefState = state;
+  const dots = b.blips.map((id, i) => { const h = hash32(id); const a = (h % 360) * Math.PI / 180, r = 16 + ((h >>> 9) % 34); return `<i class="blip" style="left:${(50 + r * Math.cos(a)).toFixed(1)}%;top:${(50 + r * Math.sin(a)).toFixed(1)}%;animation-delay:${((i * 0.41) % 3.2).toFixed(2)}s"></i>`; }).join('');
+  const steps = setupSteps(); const left = steps.filter(s => !s.done); const hideSetup = ls.get('lk2.setupHide', false);
+  const headline = b.hour ? `${fmt(b.hour)} new in the last hour` : b.day ? `${fmt(b.day)} posted today` : 'Quiet right now';
+  d.innerHTML = `<div class="brief">
+    <header class="brief-top">
+      <div class="radar ${S.connected ? 'on' : ''}" aria-hidden="true"><span class="sweep"></span><span class="rings"></span>${dots}<span class="core"></span></div>
+      <div class="brief-h"><span class="eyebrow"><span class="st-dot ${S.connected ? 'on' : ''}"></span>${state}${boards ? ` · watching ${fmt(boards)} careers pages` : ''}</span>
+        <h2>${headline}</h2><p>In ${esc(scope)}. New roles drop in at the top of the list as they are found.</p></div>
+    </header>
+    <div class="brief-stats">
+      <button data-bq="hour"><b>${fmt(b.hour)}</b><span>Last hour</span></button>
+      <button data-bq="day"><b>${fmt(b.day)}</b><span>Today</span></button>
+      <button data-bq="best" ${hasSkills ? '' : 'disabled'}><b>${hasSkills ? fmt(b.strong) : '–'}</b><span>Strong matches this week</span></button>
+    </div>
+    ${hasSkills && b.best.length ? `<section class="brief-sec"><h4>Best matches for you this week<button class="link small" data-bq="best">See all</button></h4>
+      <div class="mini-list">${b.best.map(([j, ft]) => `<button class="mini" data-open="${j.id}">${logo(j.company, j.domain)}<span class="mini-main"><b>${esc(j.title)}</b><span>${esc(j.company)} · ${when(j)}</span></span><span class="r-fit ${ft.pct >= 75 ? 'hi' : ''}" title="${esc(`You have ${ft.have.length} of ${ft.n} skills`)}">${ring(ft.pct, 26, 3)}<b>${ft.pct}</b></span></button>`).join('')}</div></section>`
+      : !hasSkills ? `<section class="brief-sec"><div class="nudge"><div><b>See which roles fit you</b><span>Import your résumé and every role shows how many of its skills you have.</span></div><button class="btn primary" data-go="resume">Import résumé</button></div></section>` : ''}
+    ${b.stale ? `<section class="brief-sec"><div class="nudge warn"><div><b>${b.stale} application${b.stale > 1 ? 's have' : ' has'} been quiet for a week</b><span>A short follow-up often gets a reply.</span></div><a class="btn" href="#pipeline">Open pipeline</a></div></section>` : ''}
+    ${left.length && !hideSetup ? `<section class="brief-sec"><h4>Finish setting up<span class="muted">${steps.length - left.length} of ${steps.length} done</span><button class="link small" id="setupHide">Hide</button></h4>
+      <div class="setup">${steps.map((s, i) => s.done ? '' : `<button class="setup-it" data-step="${i}"><span class="tick"></span><span><b>${esc(s.label)}</b><small>${esc(s.hint)}</small></span></button>`).join('')}</div></section>` : ''}
+    <footer class="brief-keys"><span><kbd>J</kbd><kbd>K</kbd>move</span><span><kbd>Enter</kbd>apply</span><span><kbd>S</kbd>save</span><span><kbd>X</kbd>hide</span><span><kbd>F</kbd>filters</span><button class="link small" id="keysOpen"><kbd>?</kbd>all shortcuts</button></footer>
+  </div>`;
+  hydrateIcons(d);
+  $$('[data-bq]', d).forEach(el => el.onclick = () => { const k = el.dataset.bq; if (k === 'hour') setFilters({ age: '1h' }); else if (k === 'day') setFilters({ age: '24h' }); else { S.sort = 'best'; ls.set('lk2.sort', 'best'); renderSort(); renderList(); list.scrollTop = 0; } });
+  $$('[data-open]', d).forEach(el => el.onclick = () => select(el.dataset.open));
+  $$('[data-step]', d).forEach(el => el.onclick = () => steps[+el.dataset.step].go());
+  $('[data-go="resume"]', d)?.addEventListener('click', () => { location.hash = '#settings'; });
+  $('#setupHide')?.addEventListener('click', () => { ls.set('lk2.setupHide', true); renderBriefing(); });
+  $('#keysOpen')?.addEventListener('click', openKeys);
+}
+// Other open roles at the same company, built once per job list.
+let coIndex = { src: null, map: new Map() };
+function rolesAt(company) {
+  if (coIndex.src !== S.jobs) { const m = new Map(); for (const j of S.jobs) { const k = normCo(j.company); if (!k) continue; (m.get(k) || m.set(k, []).get(k)).push(j); } coIndex = { src: S.jobs, map: m }; }
+  return coIndex.map.get(normCo(company)) || [];
+}
+// A posting's text, set as headings, paragraphs and bullet lists instead of one grey block.
+function formatDesc(text) {
+  let html = '', inList = false; const close = () => { if (inList) { html += '</ul>'; inList = false; } };
+  for (const raw of String(text).replace(/\r/g, '').split('\n')) {
+    const l = raw.trim(); if (!l) { close(); continue; }
+    const b = l.match(/^(?:[•·▪◦●‣➢*]|[-–](?=\s)|\d{1,2}[.)](?=\s))\s*(.+)$/);
+    if (b) { if (!inList) { html += '<ul>'; inList = true; } html += `<li>${esc(b[1])}</li>`; continue; }
+    close();
+    const words = l.split(/\s+/).length;
+    const heading = l.length <= 64 && words <= 8 && /^[A-Z0-9]/.test(l) && !/[.!?,;]$/.test(l) && (/:$/.test(l) || (l === l.toUpperCase() && /[A-Z]{3}/.test(l)) || /^(about|what |who |why |how |responsibilit|requirement|qualification|benefit|perks|the role|the team|your |our |skills|nice to have|preferred|minimum|basic|compensation|we offer|you will|you’ll|you'll|key |overview|summary|job description|duties|education|experience|must have|bonus)/i.test(l));
+    if (heading) html += `<h5>${esc(l.replace(/:$/, ''))}</h5>`;
+    else html += `<p>${esc(l)}</p>`;
+  }
+  close(); return html;
+}
+const durShort = ms => { const m = Math.round(ms / 6e4); return m < 1 ? 'under a minute' : m < 60 ? `${m} min` : `${Math.round(m / 6) / 10} h`; };
 async function select(id, fromClick = false) {
   S.sel = id;
   $$('.row', list).forEach(r => r.classList.toggle('sel', r.dataset.id === id));
   const row = $(`.row[data-id="${id}"]`, list); if (row && !fromClick) row.scrollIntoView({ block: 'nearest' });
   const d = $('#detail'); d.classList.add('open');
-  d.innerHTML = `<div class="d-body" style="padding-top:28px"><span class="spin"></span></div>`;
+  d.innerHTML = '<div class="d-skel"><i></i><i></i><i></i><i></i><i></i><i></i></div>';
   let j; try { j = await api('/api/job/' + encodeURIComponent(id)); } catch (e) { d.innerHTML = `<div class="d-body">${esc(e.message)}</div>`; return; }
   if (S.sel !== id) return;
   renderDetail(j);
@@ -335,7 +457,12 @@ const saveBtnHtml = saved => `<span class="bm ${saved ? 'on' : ''}">${ic('bookma
 function factsFor(j) {
   const out = []; const add = (k, v, cls = '') => { if (v) out.push(`<div class="fact"><span>${k}</span><b class="${cls}">${v}</b></div>`); };
   const fr = freshness(j);
-  if (fr.kind === 'exact') add('Posted', esc(agoLong(fr.t)), isHot(j) ? 'live' : '');
+  if (fr.kind === 'exact') {
+    add('Posted', esc(agoLong(fr.t)), isHot(j) ? 'live' : '');
+    // how quickly Lookout caught it, when both times are exact
+    const lag = j.firstSeen && !j.backfill ? Date.parse(j.firstSeen) - fr.t : NaN;
+    if (lag >= 0 && lag < 90 * 6e4) add('Found', esc(lag < 9e4 ? 'as it was posted' : `${durShort(lag)} after posting`), lag < 20 * 6e4 ? 'live' : '');
+  }
   else if (fr.kind === 'date') add('Posted', esc(dayLabel(j.postedAt)));
   else if (fr.kind === 'seen') add('First seen', esc(agoLong(Date.parse(j.firstSeen))));
   add('Experience', j.yearsMin === 0 && !j.yearsMax ? 'None needed' : esc(years(j)));
@@ -364,7 +491,7 @@ function renderDetail(j) {
     ${j.middleman ? `<p class="mid">${ic('layers')}<span>Re-posted by <b>${esc(j.company)}</b>${j.middleman.employer ? ` for <b>${esc(j.middleman.employer)}</b>` : ''}. The original listing was not found, so Apply goes through them. <a class="link" href="https://www.google.com/search?q=${encodeURIComponent(`${j.middleman.employer || ''} careers "${j.title.replace(/\s*\(.*?\)\s*/g, ' ').trim()}"`)}" target="_blank" rel="noreferrer">Search for the original</a></span></p>` : ''}
     ${j.reposts?.length ? `<p class="mid ok">${ic('layers')}<span>This is the employer's own listing. Also re-posted by ${j.reposts.map(r => esc(r.company)).join(', ')}; those copies are folded in here.</span></p>` : ''}
     <div class="d-actions">
-      <a class="btn primary lg" href="${esc(apply)}" target="_blank" rel="noreferrer" title="Open the listing (Enter)">Apply ${ic('external')}</a>
+      <a class="btn primary lg" id="dApply" href="${esc(apply)}" target="_blank" rel="noreferrer" title="Open the listing (Enter)">Apply ${ic('external')}</a>
       <button class="btn lg" id="dSave" title="Save (S)">${saveBtnHtml(tr.status === 'saved')}</button>
       <button class="btn lg" id="dDraft" title="Draft an outreach email (E)">${ic('mail')}Email</button>
       <span class="spacer"></span>
@@ -373,21 +500,32 @@ function renderDetail(j) {
     </div>
   </div>
   <div class="d-body">
+    ${(() => { const ft = fitOf(j); if (!ft) return '';
+      const warn = overReachNote(j, p, ft);
+      return `<div class="matchcard ${ft.thin ? 'low' : ft.pct >= 75 ? 'hi' : ft.pct >= 50 ? 'mid' : 'low'}"><span class="mc-ring">${ring(ft.pct, 54, 5)}<b>${ft.pct}</b></span>
+        <div class="mc-main"><b>${ft.word}</b><span>You have ${ft.have.length} of ${ft.n} skills it names${ft.strong.length ? `, ${ft.strong.length} of them backed by your own work` : ''}.</span>${warn ? `<span class="mc-warn">${esc(warn)}</span>` : ''}</div></div>`; })()}
     <div class="facts">${factsFor(j)}</div>
     ${reqs.length ? `<section class="sec"><h4>Requirements</h4><ul class="reqs ${reqs.length > 6 ? 'clamped' : ''}" id="reqs">${reqs.map(r => `<li>${esc(r)}</li>`).join('')}</ul>${reqs.length > 6 ? `<button class="link small" id="reqMore">Show all ${reqs.length}</button>` : ''}</section>` : ''}
     ${j.skills.length ? (() => {
       const ft = fit(j, p); const techN = ft.have.length + ft.missing.length; const chip = (n, cls, t) => `<span class="sk ${cls}"${t ? ` title="${esc(t)}"` : ''}>${esc(n)}</span>`;
       const note = n => (p.skillNotes || {})[skillInfo(n).canonical.toLowerCase()];
-      return `<section class="sec"><h4>Skills${p.skills?.length && techN ? `<span class="match-pct">You have ${ft.have.length} of ${techN}${ft.strong.length ? ` · ${ft.strong.length} strong` : ''}</span>` : ''}</h4>${techN ? `<div class="chipset">${ft.have.map(n => ft.strong.includes(n) ? chip(n, 'hit strong', `Strong: ${note(n) || 'your own work uses it'}`) : chip(n, 'hit', note(n))).join('')}${ft.missing.map(n => chip(n, 'tech')).join('')}</div>` : ''}${ft.general.length ? `<div class="chipset gen">${ft.general.map(n => chip(n, ft.genHave.includes(n) ? 'gen hit' : 'gen')).join('')}</div>` : ''}${ft.expGap >= 1 ? `<p class="fine">Asks for ${j.yearsMin}+ years of experience; your profile has ${p.yearsExp}.</p>` : ''}</section>`;
+      return `<section class="sec"><h4>Skills${p.skills?.length && techN ? `<span class="match-pct">You have ${ft.have.length} of ${techN}${ft.strong.length ? ` · ${ft.strong.length} strong` : ''}</span>` : ''}</h4>${techN ? `<div class="chipset">${ft.have.map(n => ft.strong.includes(n) ? chip(n, 'hit strong', `Strong: ${note(n) || 'your own work uses it'}`) : chip(n, 'hit', note(n))).join('')}${ft.missing.map(n => chip(n, 'tech')).join('')}</div>` : ''}${ft.general.length ? `<div class="chipset gen">${ft.general.map(n => chip(n, ft.genHave.includes(n) ? 'gen hit' : 'gen')).join('')}</div>` : ''}</section>`;
     })() : ''}
     <section class="sec"><h4>Contact<button class="icon-btn sm" id="cRe" title="Check again">${ic('refresh')}</button></h4><div id="contacts"><span class="spin"></span></div></section>
-    <section class="sec"><h4>Status</h4><div class="status-row">${STATUSES.map(([v, l]) => `<button data-st="${v}" class="${tr.status === v ? 'on' : ''}">${l}</button>`).join('')}</div>
-      <textarea class="note" id="note" rows="2" placeholder="Notes">${esc(tr.note || '')}</textarea></section>
+    <section class="sec"><h4>Your progress<span class="muted small" id="stWhen">${tr.status && tr.at ? `${esc(statusLabel(tr.status))} ${esc(agoLong(Date.parse(tr.at)))}` : ''}</span></h4>
+      <div class="stepper" id="stepper">${STATUSES.map(([v, l]) => `<button data-st="${v}" class="${v === 'rejected' ? 'end' : ''}"><i></i><span>${l}</span></button>`).join('')}</div>
+      <textarea class="note" id="note" rows="2" placeholder="Notes: who you spoke to, what to follow up on">${esc(tr.note || '')}</textarea></section>
     <section class="sec srcsec"><h4>Seen on ${j.sources.length} source${j.sources.length > 1 ? 's' : ''}</h4>
       <p class="apply-note ${linkKind(apply, j.company)}">${{ direct: 'Apply opens the employer’s own listing.', near: 'Apply opens a listing one click from the employer.', site: 'Apply opens the link the source gave.', copy: 'Apply opens a job board’s copy. The employer’s own listing was not found.' }[linkKind(apply, j.company)]}</p>
       <div class="srcs">${j.sources.map(s => `<a href="${esc(s.url)}" target="_blank" rel="noreferrer"><b>${esc(srcName(s.source))}</b><span>${s.postedAt ? `posted ${agoLong(Date.parse(s.postedAt))}` : `seen ${agoLong(Date.parse(s.seenAt))}`}</span></a>`).join('')}${(j.urls || []).filter(u => !j.sources.some(s => s.url === u)).slice(0, 4).map(u => `<a href="${esc(u)}" target="_blank" rel="noreferrer"><b>${esc(hostOf(u))}</b><span>${{ direct: 'employer', near: 'one click away', site: 'link', copy: 'board copy' }[linkKind(u, j.company)]}${u === apply ? ' · Apply' : ''}</span></a>`).join('')}</div></section>
-    ${j.description ? `<section class="sec"><h4>Full posting</h4><div class="desc">${esc(j.description)}</div></section>` : ''}
+    ${(() => { const more = rolesAt(j.company).filter(x => x.id !== j.id).sort((a, b) => effectiveTime(b) - effectiveTime(a)); if (!more.length) return '';
+      return `<section class="sec"><h4>More at ${esc(j.company)}<span class="muted small">${more.length} other role${more.length > 1 ? 's' : ''}</span></h4><div class="mini-list">${more.slice(0, 4).map(x => { const f = fitOf(x); return `<button class="mini" data-open="${x.id}"><span class="mini-main"><b>${esc(x.title)}</b><span>${esc(locShort(x) || x.type || '')} · ${when(x)}</span></span>${f && !f.thin && f.pct >= 40 ? `<span class="r-fit ${f.pct >= 75 ? 'hi' : ''}">${ring(f.pct, 22, 2.5)}<b>${f.pct}</b></span>` : ''}</button>`; }).join('')}</div>${more.length > 4 ? `<button class="link small" id="moreCo">See all ${more.length}</button>` : ''}</section>`; })()}
+    ${j.description ? `<section class="sec"><h4>Full posting</h4><div class="desc">${formatDesc(j.description)}</div></section>` : ''}
   </div>`;
+  paintStatus(tr.status);
+  $('#dApply').onclick = () => { S.askApplied = { id: j.id, title: j.title, at: Date.now() }; };
+  $$('[data-open]', d).forEach(el => el.onclick = () => { const id = el.dataset.open; if (!current.some(x => x.id === id)) $$('.row.sel', list).forEach(r => r.classList.remove('sel')); select(id); });
+  $('#moreCo')?.addEventListener('click', () => { const prev = { filters: S.filters, view: S.activeView }; S.activeView = null; setFilters({ ...EMPTY_FILTERS, q: `"${j.company.toLowerCase()}"` }); $('#q').value = S.filters.q; toast(`Roles at ${j.company}`, { action: ['Back to my filters', () => { S.activeView = prev.view; setFilters(prev.filters); $('#q').value = S.filters.q || ''; }] }); });
   $('#dClose').onclick = () => { S.sel = null; $$('.row.sel', list).forEach(r => r.classList.remove('sel')); detailEmpty(); };
   $('#reqMore')?.addEventListener('click', e => { const c = $('#reqs').classList.toggle('clamped'); e.target.textContent = c ? `Show all ${reqs.length}` : 'Show fewer'; });
   $('#dSave').onclick = () => track(j.id, S.meta.tracking[j.id]?.status === 'saved' ? '' : 'saved');
@@ -445,10 +583,33 @@ async function track(id, status, note, quiet) {
   const j = S.jobs.find(x => x.id === id);
   const row = $(`.row[data-id="${id}"]`, list); if (row && j) row.outerHTML = rowHtml(j);
   hydrateIcons(list);
-  if (S.sel === id && S.detailJob) { $$('[data-st]').forEach(b => b.classList.toggle('on', b.dataset.st === status)); const sb = $('#dSave'); if (sb) sb.innerHTML = saveBtnHtml(status === 'saved'); }
+  if (S.sel === id && S.detailJob) { paintStatus(status); const w = $('#stWhen'); if (w) w.textContent = status ? `${statusLabel(status)} just now` : ''; const sb = $('#dSave'); if (sb) sb.innerHTML = saveBtnHtml(status === 'saved'); }
+  briefMemo.sig = '';
   renderNav(); if (S.view === 'pipeline') renderPipeline();
   if (!quiet && status && status !== 'hidden') toast(`${statusLabel(status)}: ${j?.title || ''}`, { undo: () => track(id, prev?.status || '', prev?.note, true) });
 }
+// The progress stepper: steps before the current one read as done.
+function paintStatus(status) {
+  const order = ['saved', 'applied', 'contacted', 'interview']; const i = order.indexOf(status);
+  $$('#stepper [data-st]').forEach(b => { const k = order.indexOf(b.dataset.st); b.classList.toggle('on', b.dataset.st === status); b.classList.toggle('done', i >= 0 && k >= 0 && k < i); });
+}
+function overReachNote(j, p, ft) {
+  if (ft.expGap >= 1) return `Asks for ${j.yearsMin}+ years of experience; your profile has ${p.yearsExp ?? 0}.`;
+  if (j.visa === 'Citizens / clearance only') return 'Open to citizens or people with security clearance only.';
+  if (j.visa === 'No sponsorship') return 'Says it does not sponsor visas.';
+  return '';
+}
+// Hide from the list's hover button: stays where you are instead of opening the next role.
+function quickHide(id) {
+  const idx = current.findIndex(j => j.id === id); const wasOpen = S.sel === id;
+  setHidden(id, true).then(() => { const top = list.scrollTop; if (wasOpen) selectNextAfter(idx); else renderList(); list.scrollTop = top; toast('Role hidden', { undo: () => setHidden(id, false).then(() => renderList()) }); });
+}
+// Coming back from the employer's page: one click to record that you applied.
+window.addEventListener('focus', () => {
+  const a = S.askApplied; if (!a || Date.now() - a.at < 5000) return; S.askApplied = null;
+  if (['applied', 'contacted', 'interview', 'rejected'].includes(S.meta?.tracking?.[a.id]?.status)) return;
+  toast(`Did you apply to ${a.title.slice(0, 60)}?`, { action: ['Mark applied', () => track(a.id, 'applied')], ms: 14000 });
+});
 function selectNextAfter(idx) { renderList(); const next = current[Math.min(idx, current.length - 1)]; if (next) select(next.id); else { S.sel = null; detailEmpty(); } }
 function hideJob(id) {
   const idx = current.findIndex(j => j.id === id);
@@ -708,7 +869,9 @@ function paletteCommands() {
     { g: 'Actions', l: 'Save current filters as view', i: 'plus', run: openSaveView },
     { g: 'Actions', l: 'Clear all filters', i: 'x', run: () => { S.activeView = null; setFilters({ ...EMPTY_FILTERS }); } },
     { g: 'Actions', l: 'Scan every source now', i: 'refresh', run: async () => { await api('/api/scan', { method: 'POST' }); toast('Polling every source now', { live: true }); } },
+    { g: 'Actions', l: 'Sort by ' + (S.sort === 'new' ? 'best match' : 'newest'), i: 'sliders', run: () => $('#sortBtn')?.click() },
     { g: 'Look', l: 'Toggle light / dark', i: 'moon', run: toggleTheme },
+    { g: 'Look', l: 'Keyboard shortcuts', i: 'layers', r: '?', run: () => openKeys() },
     { g: 'Look', l: document.documentElement.dataset.density === 'compact' ? 'Comfortable spacing' : 'Compact spacing', i: 'layers', run: () => setDensity(document.documentElement.dataset.density === 'compact' ? 'comfortable' : 'compact') },
   ];
   return cmds;
@@ -767,7 +930,11 @@ document.addEventListener('keydown', e => {
     if (S.sel) { S.sel = null; $$('.row.sel', list).forEach(r => r.classList.remove('sel')); detailEmpty(); }
     return;
   }
-  if (typing || e.ctrlKey || e.metaKey || e.altKey || $('#viewDlg').open || !$('#palBg').classList.contains('hidden') || $('#sheet').classList.contains('open')) return;
+  if (typing || e.ctrlKey || e.metaKey || e.altKey || document.querySelector('dialog[open]') || !$('#palBg').classList.contains('hidden') || $('#sheet').classList.contains('open')) return;
+  if (e.key === '?') { e.preventDefault(); return openKeys(); }
+  // G then a letter jumps between screens, from anywhere
+  if (S.gAt && Date.now() - S.gAt < 1200) { const to = { j: 'jobs', s: 'signals', p: 'pipeline', o: 'sources', t: 'settings' }[e.key.toLowerCase()]; S.gAt = 0; if (to) { e.preventDefault(); location.hash = '#' + to; return; } }
+  if (e.key.toLowerCase() === 'g') { S.gAt = Date.now(); return; }
   if (S.view !== 'jobs') return;
   if ((e.key === ' ' || e.key === 'Enter') && /^(BUTTON|A|SUMMARY)$/.test(ae?.tagName)) return; // let the focused control handle it
   const k = e.key.toLowerCase();
@@ -776,7 +943,7 @@ document.addEventListener('keydown', e => {
   const idx = current.findIndex(j => j.id === S.sel);
   if ((k === 'j' || e.key === 'ArrowDown')) { e.preventDefault(); const n = current[Math.min(current.length - 1, idx + 1)]; if (n) { if (idx + 1 >= S.limit) { S.limit += 300; renderList(); } select(n.id); } }
   else if ((k === 'k' || e.key === 'ArrowUp')) { e.preventDefault(); const n = current[Math.max(0, idx - 1)]; if (n) select(n.id); }
-  else if (e.key === 'Enter' && S.detailJob && S.sel) window.open(S.detailJob.applyUrl || S.detailJob.url, '_blank', 'noopener');
+  else if (e.key === 'Enter' && S.detailJob && S.sel) { S.askApplied = { id: S.detailJob.id, title: S.detailJob.title, at: Date.now() }; window.open(S.detailJob.applyUrl || S.detailJob.url, '_blank', 'noopener'); }
   else if (k === 's' && S.sel) track(S.sel, S.meta.tracking[S.sel]?.status === 'saved' ? '' : 'saved');
   else if (k === 'x' && S.sel) hideJob(S.sel);
   else if (k === 'e' && S.sel) $('#dDraft')?.click();
@@ -804,16 +971,53 @@ async function renderSignals() {
 $$('#sigSeg button').forEach(b => b.onclick = () => { S.sigSeg = b.dataset.v; $$('#sigSeg button').forEach(x => x.classList.toggle('on', x === b)); renderSignals(); });
 
 // ───────────────────────────────────────────── pipeline
+// A board you can drag roles across. Cards say how long they have sat in a stage; applied or contacted
+// for a week with no move gets a nudge to follow up.
 function renderPipeline() {
-  const byId = new Map(S.jobs.map(j => [j.id, j]));
-  const cols = [...STATUSES, ['_hidden', 'Hidden']];
-  $('#kanban').innerHTML = cols.map(([st, label]) => {
-    const items = Object.entries(S.meta.tracking).filter(([, t]) => st === '_hidden' ? (t.hidden || t.status === 'hidden') : t.status === st).map(([id]) => byId.get(id)).filter(Boolean);
-    const empty = st === 'saved' ? 'Press <kbd>S</kbd> on a role' : st === '_hidden' ? 'Hidden roles land here' : 'Empty';
-    return `<div class="col"><div class="col-h">${label}<span>${items.length}</span></div>${items.map(j => rowHtml(j)).join('') || `<div class="none">${empty}</div>`}</div>`;
-  }).join('');
-  hydrateIcons($('#kanban'));
-  $$('#kanban .row').forEach(el => el.onclick = () => { location.hash = '#jobs'; setTimeout(() => select(el.dataset.id), 30); });
+  const byId = new Map(S.jobs.map(j => [j.id, j])); const now = Date.now();
+  const all = Object.entries(S.meta.tracking).map(([id, t]) => ({ id, t, j: byId.get(id) })).filter(x => x.j);
+  const shown = all.filter(x => x.t.status && x.t.status !== 'hidden' && !x.t.hidden);
+  const hidden = all.filter(x => x.t.hidden || x.t.status === 'hidden');
+  const n = st => shown.filter(x => x.t.status === st).length;
+  const week = shown.filter(x => ['applied', 'contacted', 'interview'].includes(x.t.status) && now - Date.parse(x.t.at) < 7 * 864e5).length;
+  $('#pipeStats').innerHTML = shown.length ? `<span><b>${shown.length}</b> tracked</span><span><b>${week}</b> moved forward this week</span>${n('interview') ? `<span class="live"><b>${n('interview')}</b> interviewing</span>` : ''}` : '';
+  const hint = { saved: 'Press <kbd>S</kbd> on a role, or drag one here', applied: 'Drag a role here once you apply', contacted: 'Roles where you wrote to someone', interview: 'Fingers crossed', rejected: 'Closed or turned down' };
+  const card = ({ id, t, j }) => {
+    const days = (now - Date.parse(t.at)) / 864e5; const stale = ['applied', 'contacted'].includes(t.status) && days > 7;
+    return `<article class="pcard ${stale ? 'stale' : ''}" draggable="true" data-id="${id}" tabindex="0">
+      <div class="pc-top">${logo(j.company, j.domain)}<div class="pc-main"><b>${esc(j.title)}</b><span>${esc(j.company)}${locShort(j) ? ` · ${esc(locShort(j))}` : ''}</span></div></div>
+      ${t.note ? `<p class="pc-note">${esc(t.note.slice(0, 140))}</p>` : ''}
+      <div class="pc-foot"><span>${esc(statusLabel(t.status))} ${esc(agoLong(Date.parse(t.at)))}</span>${stale ? '<span class="tag warn">Follow up?</span>' : ''}</div></article>`;
+  };
+  $('#kanban').innerHTML = shown.length || hidden.length ? STATUSES.map(([st, label]) => {
+    const items = shown.filter(x => x.t.status === st).sort((a, b) => Date.parse(b.t.at) - Date.parse(a.t.at));
+    return `<section class="col" data-st="${st}"><header class="col-h"><span class="col-dot st-${st}"></span>${label}<span>${items.length}</span></header><div class="col-body">${items.map(card).join('') || `<div class="none">${hint[st]}</div>`}</div></section>`;
+  }).join('') : `<div class="empty pipe-empty"><div class="empty-in"><img src="/logo.svg" width="44" alt=""><h3>Nothing tracked yet</h3><p>Save a role with <kbd>S</kbd> and it lands here. Drag it along as you apply, hear back and interview.</p><a class="btn primary" href="#jobs">Browse roles</a></div></div>`;
+  $('#pipeHidden').innerHTML = hidden.length ? `<details class="hid"><summary>${hidden.length} hidden role${hidden.length > 1 ? 's' : ''}</summary><div class="hid-list">${hidden.map(({ id, j }) => `<div class="hid-row"><span><b>${esc(j.title)}</b> · ${esc(j.company)}</span><button class="btn sm ghost" data-unhide="${id}">Unhide</button></div>`).join('')}</div></details>` : '';
+  hydrateIcons($('#v-pipeline'));
+  const open = id => { location.hash = '#jobs'; setTimeout(() => select(id), 30); };
+  $$('#kanban .pcard').forEach(el => {
+    el.onclick = () => open(el.dataset.id); el.onkeydown = e => { if (e.key === 'Enter') open(el.dataset.id); };
+    el.ondragstart = e => { e.dataTransfer.setData('text/plain', el.dataset.id); e.dataTransfer.effectAllowed = 'move'; el.classList.add('drag'); $('#kanban').classList.add('dragging'); };
+    el.ondragend = () => { el.classList.remove('drag'); $('#kanban').classList.remove('dragging'); $$('#kanban .col.over').forEach(c => c.classList.remove('over')); };
+  });
+  $$('#kanban .col').forEach(col => {
+    col.ondragover = e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; col.classList.add('over'); };
+    col.ondragleave = e => { if (!col.contains(e.relatedTarget)) col.classList.remove('over'); };
+    col.ondrop = e => { e.preventDefault(); col.classList.remove('over'); const id = e.dataTransfer.getData('text/plain'); if (id && S.meta.tracking[id] && S.meta.tracking[id].status !== col.dataset.st) track(id, col.dataset.st); };
+  });
+  $$('[data-unhide]').forEach(b => b.onclick = () => setHidden(b.dataset.unhide, false).then(() => { renderPipeline(); toast('Role restored'); }));
+}
+function openKeys() { $('#keysDlg').showModal(); }
+$('#keysClose').onclick = () => $('#keysDlg').close();
+$('#keysDlg').addEventListener('click', e => { if (e.target === $('#keysDlg')) $('#keysDlg').close(); });
+// Settings: a section list on the left that follows what you are reading
+function buildSettingsNav() {
+  const nav = $('#setNav'), scroll = $('#setScroll'); if (nav.dataset.built) return; nav.dataset.built = '1';
+  const cards = () => $$('[data-nav]', scroll).filter(c => !c.hidden);
+  const paint = () => { nav.innerHTML = cards().map(c => `<button data-to="${c.id}">${esc(c.dataset.nav)}</button>`).join(''); $$('button', nav).forEach(b => b.onclick = () => { $('#' + b.dataset.to).scrollIntoView({ behavior: document.hidden || matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); $$('button', nav).forEach(x => x.classList.toggle('on', x === b)); }); spy(); };
+  const spy = () => { if (!scroll.clientHeight) { $$('button', nav).forEach((b, i) => b.classList.toggle('on', i === 0)); return; } const top = scroll.getBoundingClientRect().top + 24; let cur = cards()[0]; for (const c of cards()) if (c.getBoundingClientRect().top <= top) cur = c; if (scroll.clientHeight && scroll.scrollHeight > scroll.clientHeight + 40 && scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 4) cur = cards().at(-1); $$('button', nav).forEach(b => b.classList.toggle('on', b.dataset.to === cur?.id)); const on = $('button.on', nav); if (on && nav.scrollWidth > nav.clientWidth) on.scrollIntoView({ block: 'nearest', inline: 'center' }); };
+  scroll.addEventListener('scroll', spy, { passive: true }); S.paintSetNav = paint; paint();
 }
 function renderNav() { $('#nPipeline').textContent = Object.values(S.meta?.tracking || {}).filter(t => t.status && t.status !== 'hidden').length || ''; }
 
@@ -1203,11 +1407,16 @@ function toggleTheme() { const cur = document.documentElement.dataset.theme || (
 function route() {
   let v = (location.hash || '#jobs').slice(1);
   if (v.startsWith('job:')) { const id = decodeURIComponent(v.slice(4)); v = 'jobs'; history.replaceState(null, '', '#jobs'); if (S.meta) setTimeout(() => select(id), 50); else S.openOnLoad = id; }
+  const prev = S.view;
   S.view = ['jobs', 'signals', 'pipeline', 'sources', 'settings'].includes(v) ? v : 'jobs';
-  $$('.view').forEach(el => el.classList.toggle('hidden', el.id !== 'v-' + S.view));
-  $$('.nav a').forEach(a => a.classList.toggle('on', a.dataset.view === S.view));
+  const swap = () => {
+    $$('.view').forEach(el => el.classList.toggle('hidden', el.id !== 'v-' + S.view));
+    $$('.nav a, .tabbar a').forEach(a => a.classList.toggle('on', a.dataset.view === S.view));
+  };
+  // a soft cross-fade between screens where the browser supports it
+  if (prev !== S.view && S.meta && !document.hidden && document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) { try { const vt = document.startViewTransition(swap); for (const p of [vt.ready, vt.finished, vt.updateCallbackDone]) p?.catch(() => { }); } catch { swap(); } } else swap();
   closeSide(); if (!S.meta) return;
-  if (S.view === 'signals') renderSignals(); if (S.view === 'pipeline') renderPipeline(); if (S.view === 'sources') renderSources(); if (S.view === 'settings') renderSettings();
+  if (S.view === 'signals') renderSignals(); if (S.view === 'pipeline') renderPipeline(); if (S.view === 'sources') renderSources(); if (S.view === 'settings') { renderSettings(); buildSettingsNav(); S.paintSetNav?.(); setTimeout(() => S.paintSetNav?.(), 80); }
 }
 window.addEventListener('hashchange', route);
 const openSide = () => $('#side').classList.add('open'); const closeSide = () => $('#side').classList.remove('open');
@@ -1220,7 +1429,8 @@ function renderEngine() {
   const last = Math.max(0, ...src.map(s => Date.parse(s.at || 0)).filter(Number.isFinite));
   const boards = src.find(s => s.id === 'ats')?.boards || 0;
   $('#engine').classList.toggle('live-on', !!S.connected);
-  $('#engState').textContent = !S.connected ? 'Offline' : busy ? 'Scanning' : 'Live';
+  const engState = !S.connected ? 'Offline' : busy ? 'Scanning' : 'Live'; $('#engState').textContent = engState;
+  if (!S.sel && S.briefState && S.briefState !== engState && $('#detail .brief .eyebrow')) { const eb = $('#detail .brief .eyebrow'); eb.firstElementChild?.classList.toggle('on', !!S.connected); $('#detail .brief .radar')?.classList.toggle('on', !!S.connected); for (const nd of eb.childNodes) if (nd.nodeType === 3 && nd.nodeValue.trim()) { nd.nodeValue = nd.nodeValue.replace(S.briefState, engState); break; } S.briefState = engState; }
   $('#engMeta').textContent = boards ? `${fmt(boards)} boards` : '';
   $('#engine').title = `${Math.max(0, src.length - 2)} feeds and ${fmt(boards)} company boards. Last check ${last ? agoLong(last) : 'pending'}.`;
 }

@@ -233,7 +233,10 @@ export function score(job, profile = {}, now = Date.now()) {
   if (job.emails?.length || job.contactCount) s += 6;                  // reachable
   s += Math.min(6, (job.sources?.length || 1) - 1) * 2;               // corroborated by several sources
   const ft = fit(job, profile);
-  s += ft.pct * 0.3;
+  // How much of it you have is the biggest part. A posting that names one or two skills says little
+  // about fit, so its score counts for less than one that names four or more.
+  const named = ft.have.length + ft.missing.length;
+  s += ft.pct * 0.6 * (named ? Math.min(1, 0.1 + named * 0.225) : 0.5);
   s -= Math.min(20, ft.expGap * 6);                                    // asks for more years than you have
   return s;
 }
@@ -256,7 +259,11 @@ export function fit(job, profile = {}) {
   const weight = n => { if (!str) return 1; const v = str[canon(n)]; return v == null ? 0.9 : v >= 0.75 ? 1 : v >= 0.45 ? 0.9 : 0.75; };
   const strong = str ? have.filter(n => (str[canon(n)] ?? 0) >= 0.75) : [];
   let pct = 0;
-  if (mine.size && tech.length) pct = Math.round(100 * Math.min(1, have.reduce((a, n) => a + weight(n), 0) / Math.min(tech.length, 8)));
+  // A long skill list does not need every item ticked: the first six count in full, each one after
+  // that counts three quarters. But 100 means you have everything it names, so each missing skill
+  // takes at least three points off (up to fifteen).
+  const asked = tech.length <= 6 ? tech.length : 6 + (tech.length - 6) * 0.75;
+  if (mine.size && tech.length) pct = Math.min(100 - Math.min(15, 3 * missing.length), Math.round(100 * Math.min(1, have.reduce((a, n) => a + weight(n), 0) / asked)));
   else if (mine.size && general.length) pct = Math.round(60 * Math.min(1, genHave.length / Math.min(general.length, 8)));
   const y = profile.yearsExp, need = job.yearsMin;
   const expGap = typeof y === 'number' && typeof need === 'number' ? Math.max(0, need - y) : 0;

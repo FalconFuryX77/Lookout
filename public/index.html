@@ -74,8 +74,9 @@
 
     <!-- PIPELINE -->
     <section class="view hidden" id="v-pipeline">
-      <header class="bar"><button class="icon-btn only-m" data-menu><i data-i="menu"></i></button><h1>Pipeline</h1></header>
+      <header class="bar"><button class="icon-btn only-m" data-menu><i data-i="menu"></i></button><h1>Pipeline</h1><div class="pipe-stats" id="pipeStats"></div></header>
       <div class="kanban" id="kanban"></div>
+      <div class="pipe-hidden" id="pipeHidden"></div>
     </section>
 
     <!-- SOURCES -->
@@ -112,13 +113,10 @@
     <!-- SETTINGS -->
     <section class="view hidden" id="v-settings">
       <header class="bar"><button class="icon-btn only-m" data-menu><i data-i="menu"></i></button><h1>Settings</h1></header>
-      <div class="scroll settings">
-        <div class="card">
-          <div class="card-h"><h3>Appearance</h3></div>
-          <div class="pref"><span>Theme</span><div class="seg" id="themeSeg"><button data-v="system">System</button><button data-v="light">Light</button><button data-v="dark">Dark</button></div></div>
-          <div class="pref"><span>Density</span><div class="seg" id="densitySeg"><button data-v="comfortable">Comfortable</button><button data-v="compact">Compact</button></div></div>
-        </div>
-        <form id="profileForm" class="card form">
+      <div class="set-wrap">
+        <nav class="set-nav" id="setNav" aria-label="Settings sections"></nav>
+      <div class="scroll settings" id="setScroll">
+        <form id="profileForm" class="card form" data-nav="Profile">
           <div class="card-h"><h3>Profile</h3>
             <div class="prof-bar"><select id="profSel" title="Switch profile"></select><button type="button" class="btn sm" id="profNew">New</button><button type="button" class="btn sm ghost" id="profRename">Rename</button><button type="button" class="btn sm ghost" id="profDel">Delete</button></div></div>
           <p class="fine" style="margin:-6px 0 14px">Each profile has its own résumé, skills, saved views and pipeline. Roles are ranked against the open one.</p>
@@ -153,20 +151,12 @@
           <label>Pitch<textarea name="pitch" rows="3" placeholder="Two or three lines about you. Used when drafting outreach emails."></textarea></label>
           <div class="form-foot"><button class="btn primary">Save</button><button type="button" class="btn" id="rankNow">Show best matches</button><span class="muted small" id="profileMsg"></span></div>
         </form>
-        <form id="readForm" class="card form">
-          <div class="card-h"><h3>Reading your links</h3><span class="muted" id="readStatus"></span></div>
-          <p class="fine" style="margin-top:0">Some sites only show their content after their JavaScript runs. For those, Lookout opens a browser you already have, hidden, with an empty profile of its own, reads the page and closes it. It never touches your normal browser windows or logins.</p>
-          <div class="row2"><label>Browser for reading pages<select name="browser" id="browserSel"><option value="auto">Automatic</option></select></label>
-            <label>GitHub token (optional)<input name="githubToken" type="password" autocomplete="off" placeholder="Lifts GitHub’s 60-an-hour limit"></label></div>
-          <p class="fine" id="browserNote"></p>
-          <div class="form-foot"><button class="btn primary">Save</button><button type="button" class="btn ghost" id="browserAgain">Look for browsers again</button><span class="muted small" id="readMsg"></span></div>
-        </form>
-        <div class="card form" id="learnCard">
+        <div class="card form" id="learnCard" data-nav="Matching">
           <div class="card-h"><h3>Best match learns from you</h3><label class="switch"><input type="checkbox" id="learnToggle"><span></span></label></div>
           <p class="fine" style="margin-top:0">Roles you save, apply to or contact count for; roles you hide count against. Best match then leans toward roles like the ones you go for. It is worked out in this window from your own pipeline, and nothing is sent anywhere.</p>
           <p class="muted small" id="learnMsg" style="margin:0"></p>
         </div>
-        <form id="pushForm" class="card form">
+        <form id="pushForm" class="card form" data-nav="Phone alerts">
           <div class="card-h"><h3>Phone alerts</h3><span class="muted">Free, via the ntfy app</span></div>
           <ol class="steps"><li>Install <b>ntfy</b> and subscribe to a topic like <code id="topicIdea"></code></li><li>Enter it here and send a test.</li><li>Turn on the bell for a saved view.</li></ol>
           <div class="row2"><label>Topic<input name="ntfyTopic" pattern="[A-Za-z0-9_-]{1,64}"></label><label>Server<input name="ntfyServer" placeholder="https://ntfy.sh"></label></div>
@@ -175,26 +165,26 @@
           <div class="form-foot"><button class="btn primary">Save</button><button type="button" class="btn" id="testPush">Send test</button><span class="muted small" id="pushMsg"></span></div>
           <p class="fine">Public ntfy topics can be read by anyone who guesses the name, so pick a long random one.</p>
         </form>
-        <div class="card form" id="extCard">
+        <form id="liForm" class="card form" data-nav="LinkedIn">
+          <div class="card-h"><h3>LinkedIn searches</h3><span class="muted">Public listings, no account</span></div>
+          <p class="fine" style="margin-top:0">One search per line: <code>keywords | location</code>. Add <code>| remote</code> for remote-only. Up to 12; fewer is faster. Leave empty to turn LinkedIn off. Checked every 4 minutes; you get a push only for roles posted in the last 2 hours.</p>
+          <label><textarea name="searches" rows="6" spellcheck="false" placeholder="software engineer intern | India"></textarea></label>
+          <div class="form-foot"><button class="btn primary">Save</button><span class="muted small" id="liMsg"></span></div>
+        </form>
+        <div class="card form" id="extCard" data-nav="Extension">
           <div class="card-h"><h3>Browser extension</h3><span class="muted" id="extStatus"></span></div>
           <p class="fine" style="margin-top:0">Open any job page in Edge or Chrome, click the Lookout button, and see which of the role's skills you have, whether it asks for more experience than you have, and whether Lookout already found it. On your GitHub, Hugging Face, Stack Overflow, Kaggle or LeetCode profile the button shows a dot: click it to add the skills that page shows. It reads a page only when you click, and sends it only to this Lookout.</p>
           <ol class="steps"><li>In Edge or Chrome open <code>edge://extensions</code> or <code>chrome://extensions</code> and turn on <b>Developer mode</b>.</li><li>Choose <b>Load unpacked</b> and pick the folder <code id="extFolder"></code></li><li>Open the extension's options and paste this pairing key.</li></ol>
           <div class="keyrow"><code id="extKey">••••••••</code><button type="button" class="btn sm" id="extCopy">Copy</button><button type="button" class="btn sm ghost" id="extShow">Show</button><button type="button" class="btn sm ghost" id="extRotate" title="Make a new key; the extension has to be paired again">New key</button></div>
           <p class="muted small" id="extMsg" style="margin:10px 0 0;min-height:1.2em"></p>
         </div>
-        <div class="card form" id="devCard" hidden>
+        <div class="card form" id="devCard" hidden data-nav="Other devices">
           <div class="card-h"><h3>Other devices</h3><span class="muted">Phone or tablet on the same Wi-Fi</span></div>
           <p class="fine" style="margin-top:0">Open this link on the device once; it remembers it. Anyone with the link can use your Lookout, so share it like a password.</p>
           <div id="devLinks" class="tokens" style="margin:0 0 10px"></div>
           <button type="button" class="btn sm ghost" id="devRotate">New link (signs other devices out)</button>
         </div>
-        <form id="liForm" class="card form">
-          <div class="card-h"><h3>LinkedIn searches</h3><span class="muted">Public listings, no account</span></div>
-          <p class="fine" style="margin-top:0">One search per line: <code>keywords | location</code>. Add <code>| remote</code> for remote-only. Up to 12; fewer is faster. Leave empty to turn LinkedIn off. Checked every 4 minutes; you get a push only for roles posted in the last 2 hours.</p>
-          <label><textarea name="searches" rows="6" spellcheck="false" placeholder="software engineer intern | India"></textarea></label>
-          <div class="form-foot"><button class="btn primary">Save</button><span class="muted small" id="liMsg"></span></div>
-        </form>
-        <div class="card form" id="srcCard">
+        <div class="card form" id="srcCard" data-nav="Sources">
           <div class="card-h"><h3>Sources</h3><span class="muted" id="srcSummary"></span></div>
           <label class="check"><input type="checkbox" id="discoverToggle"><span>Find new boards and lists on my own</span></label>
           <p class="fine" style="margin:-6px 0 18px">Adds every careers board it spots inside a listing, YC companies, freshly funded startups and new community job lists on GitHub. Turn it off to keep exactly the boards and lists you chose.</p>
@@ -208,13 +198,35 @@
           <div class="list-row"><div><b>Start over</b><span>Remove every board and list, then add only the ones you want</span></div><button type="button" class="btn sm ghost danger" id="resetBtn">Remove all</button></div>
           <p class="muted small" id="srcMsg" style="margin:10px 0 0;min-height:1.2em"></p>
         </div>
-        <div class="card"><div class="card-h"><h3>Recent alerts</h3><span class="muted" id="alertNote"></span></div><div id="alertLog"></div></div>
-        <div class="card"><div class="card-h"><h3>Blocked companies</h3></div><div id="blockedList" class="tokens" style="margin:0"></div></div>
-        <div class="card"><div class="card-h"><h3>Keyboard</h3></div>
-          <div class="keys"><span><kbd>Ctrl K</kbd>Command menu</span><span><kbd>/</kbd>Search</span><span><kbd>F</kbd>Filters</span><span><kbd>J</kbd><kbd>K</kbd>Next / previous</span><span><kbd>Enter</kbd>Apply</span><span><kbd>S</kbd>Save</span><span><kbd>E</kbd>Email</span><span><kbd>X</kbd>Hide</span><span><kbd>Esc</kbd>Close</span></div></div>
+        <form id="readForm" class="card form" data-nav="Reading links">
+          <div class="card-h"><h3>Reading your links</h3><span class="muted" id="readStatus"></span></div>
+          <p class="fine" style="margin-top:0">Some sites only show their content after their JavaScript runs. For those, Lookout opens a browser you already have, hidden, with an empty profile of its own, reads the page and closes it. It never touches your normal browser windows or logins.</p>
+          <div class="row2"><label>Browser for reading pages<select name="browser" id="browserSel"><option value="auto">Automatic</option></select></label>
+            <label>GitHub token (optional)<input name="githubToken" type="password" autocomplete="off" placeholder="Lifts GitHub’s 60-an-hour limit"></label></div>
+          <p class="fine" id="browserNote"></p>
+          <div class="form-foot"><button class="btn primary">Save</button><button type="button" class="btn ghost" id="browserAgain">Look for browsers again</button><span class="muted small" id="readMsg"></span></div>
+        </form>
+        <div class="card" id="apprCard" data-nav="Appearance">
+          <div class="card-h"><h3>Appearance</h3></div>
+          <div class="pref"><span>Theme</span><div class="seg" id="themeSeg"><button data-v="system">System</button><button data-v="light">Light</button><button data-v="dark">Dark</button></div></div>
+          <div class="pref"><span>Density</span><div class="seg" id="densitySeg"><button data-v="comfortable">Comfortable</button><button data-v="compact">Compact</button></div></div>
+        </div>
+        <div class="card" id="alertsCard" data-nav="Recent alerts"><div class="card-h"><h3>Recent alerts</h3><span class="muted" id="alertNote"></span></div><div id="alertLog"></div></div>
+        <div class="card" id="blockedCard" data-nav="Blocked"><div class="card-h"><h3>Blocked companies</h3></div><div id="blockedList" class="tokens" style="margin:0"></div></div>
+        <div class="card" id="keysCard" data-nav="Keyboard"><div class="card-h"><h3>Keyboard</h3></div>
+          <div class="keys"><span><kbd>Ctrl K</kbd>Command menu</span><span><kbd>/</kbd>Search</span><span><kbd>F</kbd>Filters</span><span><kbd>J</kbd><kbd>K</kbd>Next / previous</span><span><kbd>Enter</kbd>Apply</span><span><kbd>S</kbd>Save</span><span><kbd>E</kbd>Email</span><span><kbd>X</kbd>Hide</span><span><kbd>G</kbd> then <kbd>J</kbd><kbd>S</kbd><kbd>P</kbd><kbd>O</kbd><kbd>T</kbd>Jump to a screen</span><span><kbd>?</kbd>This list</span><span><kbd>Esc</kbd>Close</span></div></div>
+
+      </div>
       </div>
     </section>
   </main>
+  <nav class="tabbar" id="tabbar" aria-label="Screens">
+    <a href="#jobs" data-view="jobs"><i data-i="inbox"></i><span>Jobs</span></a>
+    <a href="#signals" data-view="signals"><i data-i="zap"></i><span>Signals</span></a>
+    <a href="#pipeline" data-view="pipeline"><i data-i="kanban"></i><span>Pipeline</span></a>
+    <a href="#sources" data-view="sources"><i data-i="radar"></i><span>Sources</span></a>
+    <a href="#settings" data-view="settings"><i data-i="settings"></i><span>Settings</span></a>
+  </nav>
 </div>
 
 <!-- Filter sheet -->
@@ -285,6 +297,13 @@
   <p class="muted small">Lookout stops checking <span id="resetCount"></span>. Roles already found stay until they age out, and companies you watch by hand are kept. Built-in community lists are switched off; you can switch any back on in Sources.</p>
   <label class="check"><input type="checkbox" name="stop" checked><span>Also stop finding new ones on my own, so only lists I add are used</span></label>
   <div class="form-foot end"><button type="button" class="btn ghost" id="resetCancel">Cancel</button><button value="ok" class="btn primary danger">Remove all</button></div></form></dialog>
+<dialog id="keysDlg" class="keys-dlg"><h2>Keyboard shortcuts</h2>
+  <div class="keys-grid">
+    <div><h5>Roles</h5><p><span>Next / previous</span><kbd>J</kbd><kbd>K</kbd></p><p><span>Open the listing to apply</span><kbd>Enter</kbd></p><p><span>Save</span><kbd>S</kbd></p><p><span>Hide</span><kbd>X</kbd></p><p><span>Draft an email</span><kbd>E</kbd></p><p><span>Close the role</span><kbd>Esc</kbd></p></div>
+    <div><h5>Find</h5><p><span>Command menu</span><kbd>Ctrl K</kbd></p><p><span>Search</span><kbd>/</kbd></p><p><span>Filters</span><kbd>F</kbd></p>
+      <h5>Go to</h5><p><span>Jobs</span><kbd>G</kbd><kbd>J</kbd></p><p><span>Signals</span><kbd>G</kbd><kbd>S</kbd></p><p><span>Pipeline</span><kbd>G</kbd><kbd>P</kbd></p><p><span>Sources</span><kbd>G</kbd><kbd>O</kbd></p><p><span>Settings</span><kbd>G</kbd><kbd>T</kbd></p></div>
+  </div>
+  <div class="form-foot end"><button type="button" class="btn" id="keysClose">Close</button></div></dialog>
 <div class="toasts" id="toasts"></div>
 <script type="module" src="/app.js"></script>
 </body>

@@ -7,8 +7,8 @@ A local, near-real-time job scanner that watches freshly funded startups, dedupl
 
 <p align="center"><a href="https://falconfuryx77.github.io/Lookout/">Website</a> · <a href="https://github.com/FalconFuryX77/Lookout/releases/latest">Download for Windows</a> · <a href="#browser-extension">Browser extension</a></p>
 
-<p align="center"><a href="https://falconfuryx77.github.io/Lookout/#demo"><img src="docs/img/demo-poster.jpg" width="760" alt="Watch the two-minute demo of Lookout"></a><br>
-<sub>Two-minute demo, recorded in the real app with a made-up profile. <a href="docs/video/lookout-demo.mp4">Download the MP4</a></sub></p>
+<p align="center"><a href="https://falconfuryx77.github.io/Lookout/#demo"><img src="docs/img/demo-poster.jpg" width="760" alt="Watch the demo of Lookout"></a><br>
+<sub>A two-and-a-half-minute demo, recorded in the real app with a made-up profile. <a href="docs/video/lookout-demo.mp4">Download the MP4</a></sub></p>
 
 ---
 
@@ -45,10 +45,11 @@ A local, near-real-time job scanner that watches freshly funded startups, dedupl
 - **Shows each role once, with the most direct link.** Roles are deduplicated across all sources, short links are followed, and Apply opens the employer's own listing whenever one is known.
 - **Filters deeply.** Filter by field, 30+ role types, years of experience, visa sponsorship, work mode, location, pay, degree, internship term, funding stage, skills and more. Save any combination as a view.
 - **Alerts you.** Phone alerts (ntfy) fire the moment a role matching a saved view appears, and each view can alert a different phone.
-- **Matches you.** Import your résumé (read locally) and every role shows which of its skills you have; roles that ask for more experience than you have are hidden.
+- **Matches you.** Import your résumé (read locally) and every role gets a score from 0 to 100 and shows which of its skills you have; roles that ask for more experience than you have are hidden.
+- **Briefs you.** Open it and one panel says how many roles are new in the last hour and today, which ones suit you best this week, and which applications have gone quiet.
 - **Checks other sites too.** A browser extension compares any job page with your profile and saves it to your pipeline.
 - **Helps you reach out.** It finds published contacts (job post, company site, GitHub org, YC founders) and drafts a personalised outreach email.
-- **Tracks your search.** A pipeline board holds saved, applied, contacted, interviewing and closed roles, with notes.
+- **Tracks your search.** Drag roles across a pipeline board (saved, applied, contacted, interviewing, closed), keep notes on each, and get a nudge when an application has had no reply for a week.
 - **Stays on your machine.** Everything is stored locally in one file.
 
 ## Download
@@ -164,7 +165,7 @@ The file is plain JSON, easy to read and edit by hand:
 
 - **Import your résumé** (PDF, Word .docx, or pasted text). It is read on your computer by the scanner itself; nothing is uploaded and no outside service is involved. Lookout pulls out your name, links, skills, education, experience and years of experience, saves them to the profile, and you can edit any of it afterwards. Scanned or image-only PDFs have no text to read; paste the text instead.
 - **Skills** are split into technical ones (languages, frameworks, tools, engineering disciplines) and general ones ("Sales", "Operations", "Communication"). Technical skills are shown first and drive the match; general ones are kept but shown quieter, in the profile, on each role and in the Skills filter.
-- **Matching.** Each role shows "You have 7 of 12" with the skills you have and the ones you are missing. Sorting by **Best match** ranks by that, and lowers roles that ask for more years than your profile has. **Filters → Skills → My skills** ticks every technical skill on your profile in one click.
+- **Matching.** Each role shows a score from 0 to 100 and "You have 7 of 12", with the skills you have and the ones you are missing. A long skill list does not need every item: the first six skills count in full and each one after that counts three quarters. 100 means you have everything it names, and every missing skill takes at least three points off. A posting that names fewer than three technical skills gets no score ("Names few skills"), because one skill out of one says little. Sorting by **Best match** ranks mostly by that score, then by how fresh the role is; it lowers roles that ask for more years than your profile has, and roles you have already applied to or closed drop to the bottom. **Filters → Skills → My skills** ticks every technical skill on your profile in one click.
 - **Your links.** Separate boxes for GitHub, LinkedIn, your portfolio or personal site, and any other links (Kaggle, Hugging Face, LeetCode, Devpost, a blog). Importing a résumé fills them from the links in it.
 - **Scan my links** reads those links on your computer and shows what your own work says about your skills:
   - **GitHub:** each repository's languages, the libraries in its dependency files (`package.json`, `requirements.txt`, `pyproject.toml`, `go.mod`, `Cargo.toml`, Gradle/Maven, `pubspec.yaml`, ...) and tell-tale files (Dockerfiles, CI workflows, Terraform, Kubernetes). No login needed; GitHub allows 60 requests an hour without one, about 25 repositories. A token in **Settings → Reading your links** lifts that.
@@ -178,7 +179,15 @@ The file is plain JSON, easy to read and edit by hand:
 
 ## Browsing
 
-Rows on the left, the selected role on the right. Each row shows the title, company, location and up to three facts (pay, visa, experience, remote, funding).
+Rows on the left, the selected role on the right. Each row shows the title, company, location and up to three facts (pay, visa, experience, remote, funding), and on the right either your match score or where the role is in your pipeline.
+
+- **Grouped by freshness.** Sorted by newest, the list is split into Last hour, Today, This week and Earlier. "Last hour" means a posting time known to the minute; a role that only carries today's date goes under Today.
+- **Save or hide from the list.** Hover a row for the two buttons, with Undo for a hide.
+- **The briefing.** With no role open, the right side shows how many roles are new in the last hour and today (click a number to filter to them), your best matches of the week, applications with no reply for a week, and any setup steps you have left.
+- **A role.** The match score and what it is based on, then the facts (including how soon after posting Lookout found it), requirements, skills, contacts, your progress as five steps from Saved to Closed, the sources it was seen on, other roles at the same company, and the full posting set as headings, paragraphs and lists.
+- **Did you apply?** Open a listing with Apply and, when you come back to the window, Lookout asks whether to mark it applied.
+- **Pipeline.** Five columns you can drag cards between. A card shows your note and how long it has been in that step; anything applied to or contacted more than a week ago is marked "Follow up?".
+- **On a phone** (through **Settings → Other devices**), the screens sit behind a tab bar at the bottom, tables become cards, and the pipeline swipes sideways.
 
 **Settings → Appearance** has the theme (system, light, dark) and density (comfortable or compact).
 
@@ -282,7 +291,8 @@ Every time label follows one rule:
 | `/` | search | `E` | draft outreach email |
 | `J` / `K` | next / previous role | `X` | hide role |
 | `Enter` | open the listing to apply | `F` | filters |
-| `Esc` | close / clear | | |
+| `Esc` | close / clear | `?` | every shortcut |
+| `G` then `J` `S` `P` `O` `T` | go to Jobs, Signals, Pipeline, Sources, Settings | | |
 
 ## Project structure
 

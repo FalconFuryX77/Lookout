@@ -62,6 +62,17 @@ h1 em{font-style:normal;color:var(--live)}
 .shot-bar{display:flex;align-items:center;gap:7px;padding:11px 14px;border-bottom:1px solid var(--line);color:var(--text3);font-size:.8em}
 .shot-bar i{width:10px;height:10px;border-radius:50%;background:var(--line2)}
 .shot-bar span{margin-left:8px}
+.shot-tabs{display:none;margin:-4px -4px -4px auto;gap:2px;padding:3px;border-radius:10px;background:var(--raised)}
+.js .shot-tabs{display:flex}
+.shot-tabs button{position:relative;overflow:hidden;height:26px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:var(--text3);font:500 12.5px var(--sans);cursor:pointer;transition:color .15s}
+.shot-tabs button:hover{color:var(--text)}
+.shot-tabs button.on{background:var(--panel);color:var(--text);box-shadow:0 0 0 1px var(--line2)}
+.shot-tabs button.on.run::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--live);transform-origin:left;animation:tabrun 7s linear both}
+.shot-tabs button:focus-visible{outline:2px solid var(--live);outline-offset:1px}
+@keyframes tabrun{from{transform:scaleX(0)}}
+.shot-views{display:grid}
+.shot-views picture{grid-area:1/1;opacity:0;visibility:hidden;transition:opacity .4s,visibility 0s .4s}
+.shot-views picture.on{opacity:1;visibility:visible;transition:opacity .4s}
 figcaption{color:var(--text3);font-size:.88em;margin-top:18px}
 .shot.side{max-width:560px;justify-self:center;width:100%}
 .shot.side.tall{max-width:330px}
@@ -130,7 +141,119 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
   section{padding-top:76px}.hero{padding-top:56px}
 }
 @media (prefers-reduced-motion:reduce){.dot{animation:none}html{scroll-behavior:auto}.btn{transition:none}}
+
+/* ═══ 2.3 ═══ */
+.js [data-rv]{opacity:0;transform:translateY(16px);transition:opacity .6s cubic-bezier(.2,.8,.2,1),transform .6s cubic-bezier(.2,.8,.2,1);transition-delay:var(--rd,0s)}
+.js [data-rv].in{opacity:1;transform:none}
+/* hero: a radar behind the headline */
+.hero{overflow:hidden}
+.hero-radar{position:absolute;left:50%;top:-250px;width:1180px;height:1180px;margin-left:-590px;pointer-events:none}
+.hero-radar .rr{position:absolute;inset:0;border-radius:50%;overflow:hidden;background:repeating-radial-gradient(circle at center,transparent 0 97px,var(--line) 97px 98px);-webkit-mask-image:radial-gradient(circle,#000 18%,transparent 66%);mask-image:radial-gradient(circle,#000 18%,transparent 66%)}
+.hero-radar .sw{position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 0deg,transparent 0 318deg,color-mix(in srgb,var(--live) 9%,transparent) 360deg);animation:spin 16s linear infinite}
+.hero-radar i{position:absolute;left:var(--x);top:var(--y);width:6px;height:6px;margin:-3px;border-radius:50%;background:var(--live);opacity:0;animation:blip 4.2s ease-out infinite;animation-delay:var(--d)}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes blip{0%{opacity:0;transform:scale(.4)}10%{opacity:.9;transform:scale(1.4)}40%{opacity:.6;transform:scale(1)}100%{opacity:0}}
+.hero .wrap{position:relative}
+.kicker{display:inline-flex;align-items:center;gap:10px;font:500 .8em var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--text2)}
+.stage{position:relative}
+.push{position:absolute;right:-14px;bottom:44px;width:310px;text-align:left;padding:14px 16px;border-radius:18px;background:color-mix(in srgb,var(--raised) 92%,transparent);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);box-shadow:var(--shadow);animation:pushin .7s 1.1s cubic-bezier(.2,.8,.2,1) both}
+@keyframes pushin{from{opacity:0;transform:translateY(18px) scale(.97)}}
+.push-h{display:flex;align-items:center;gap:8px;font-size:.8em;color:var(--text3);margin-bottom:6px}
+.push-h img{width:18px;height:18px;border-radius:5px} .push-h b{color:var(--text2);font-weight:600} .push-h span{margin-left:auto}
+.push-t{font-weight:600;line-height:1.3} .push-s{color:var(--text2);font-size:.9em;margin-top:2px}
+.push-s b{color:var(--live);font-weight:500}
+/* reads from */
+.marq{display:flex;align-items:center;gap:22px;margin-top:56px;color:var(--text3)}
+.marq-l{font:500 .78em var(--mono);letter-spacing:.07em;text-transform:uppercase;white-space:nowrap;flex-shrink:0}
+.marq-t{flex:1;overflow:hidden;-webkit-mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent);mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent)}
+.marq-in{display:flex;gap:44px;width:max-content;animation:marq 38s linear infinite;font:500 1.02em var(--sans);color:var(--text2);white-space:nowrap}
+.marq:hover .marq-in{animation-play-state:paused}
+@keyframes marq{to{transform:translateX(-50%)}}
+/* the race */
+.race{margin-top:44px;padding:30px 30px 22px;border-radius:20px;background:var(--panel);border:1px solid var(--line);display:grid;gap:22px}
+.lane{display:grid;grid-template-columns:260px 1fr;gap:18px;align-items:center}
+.lane-l{font-weight:600} .lane-l small{display:block;font-weight:400;color:var(--text3);font-size:.86em}
+.lane-t{position:relative;height:38px}
+.lane-t::before{content:"";position:absolute;left:0;right:0;top:18px;height:2px;background:var(--line2);border-radius:2px}
+.lane-t .dot0{position:absolute;left:0;top:13px;width:12px;height:12px;border-radius:50%;background:var(--text3)}
+.lane-t .bar{position:absolute;left:6px;top:18px;height:2px;border-radius:2px;width:0;transition:width 1.6s cubic-bezier(.3,.7,.2,1) .2s}
+.lane-t .flag{position:absolute;top:4px;display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 13px;border-radius:99px;font-size:.88em;font-weight:500;white-space:nowrap;opacity:0;transition:opacity .4s 1.5s}
+.lane.slow .bar{background:repeating-linear-gradient(90deg,var(--text3) 0 5px,transparent 5px 11px)} .lane.slow .flag{background:var(--raised);color:var(--text2);right:0;box-shadow:inset 0 0 0 1px var(--line2)}
+.lane.fast .bar{background:var(--live)} .lane.fast .flag{background:var(--live);color:var(--live-ink);left:calc(9% + 2px);transition-delay:.6s}
+.lane.fast .lane-t .dot0{background:var(--live)}
+.race.in .lane.slow .bar{width:calc(100% - 236px)} .race.in .lane.fast .bar{width:calc(9% - 6px);transition-duration:.5s}
+.race.in .flag{opacity:1}
+.axis{display:grid;grid-template-columns:260px 1fr;gap:18px;font:500 .76em var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--text3)}
+.axis div{position:relative;height:16px;grid-column:2} .axis span{position:absolute;white-space:nowrap} .axis span.mid{transform:translateX(-50%)} .axis span:last-child{left:auto;right:0}
+.race-note{margin:0;color:var(--text3);font-size:.86em}
+/* bento */
+.bento{display:grid;grid-template-columns:repeat(6,1fr);gap:16px;margin-top:44px}
+.tile{position:relative;overflow:hidden;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:26px;display:flex;flex-direction:column;gap:6px;grid-column:span 2;transition:border-color .2s}
+.tile:hover{border-color:var(--line2)}
+.tile.w4{grid-column:span 4} .tile.w3{grid-column:span 3}
+.tile h3{margin:0;font-size:1.14em;letter-spacing:-.015em}
+.tile p{margin:0;color:var(--text2);font-size:.96em}
+.tile .vis{margin-top:auto;padding-top:22px}
+.merge{display:flex;align-items:center;gap:16px}
+.merge .srcs{display:flex;flex-wrap:wrap;gap:6px;flex:0 1 330px}
+.merge .srcs span{padding:5px 11px;border-radius:9px;background:var(--raised);color:var(--text3);font-size:.86em}
+.merge .arrow{flex:0 0 44px;height:2px;background:repeating-linear-gradient(90deg,var(--live) 0 6px,transparent 6px 14px);background-size:14px 2px;animation:dash .7s linear infinite;opacity:.8;font-size:0}
+.merge .one{display:grid;gap:2px;padding:12px 16px;border-radius:14px;background:var(--live-dim);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--live) 30%,transparent)}
+.merge .one b{font-weight:600} .merge .one span{color:var(--live);font-size:.86em;font-weight:500}
+.notes-stack{display:grid;gap:8px}
+.note-c{padding:11px 13px;border-radius:14px;background:var(--raised);box-shadow:inset 0 0 0 1px var(--line);font-size:.88em}
+.js .note-c{opacity:0;transform:translateY(10px);transition:opacity .5s,transform .5s}
+.js .in .note-c{opacity:1;transform:none} .js .in .note-c:nth-child(2){transition-delay:.35s} .js .in .note-c:nth-child(3){transition-delay:.7s}
+.note-c b{display:block;font-weight:600} .note-c span{color:var(--text3)} .note-c em{font-style:normal;color:var(--live)}
+.matchv{display:flex;align-items:center;gap:16px}
+.matchv svg{flex-shrink:0;color:var(--live)} .matchv .num{position:relative;display:grid;place-items:center}
+.matchv .num b{position:absolute;font:600 1.15em var(--mono)}
+.matchv .chips{display:flex;flex-wrap:wrap;gap:5px}
+.matchv .chips span{padding:3px 10px;border-radius:99px;font-size:.84em;box-shadow:inset 0 0 0 1px var(--line2);color:var(--text3)}
+.matchv .chips .y{background:var(--live-dim);color:var(--live);box-shadow:none}
+.tri-demo{display:flex;flex-wrap:wrap;gap:7px}
+.tri-demo button{height:32px;padding:0 13px;border-radius:99px;border:1px solid var(--line2);background:transparent;color:var(--text2);font:inherit;font-size:.9em;cursor:pointer;transition:all .15s}
+.tri-demo button:hover{border-color:var(--text3)}
+.tri-demo button.inc{background:var(--live-dim);border-color:transparent;color:var(--live)}
+.tri-demo button.exc{border-color:color-mix(in srgb,#f2555a 60%,transparent);color:#f2555a;text-decoration:line-through}
+.tri-say{margin-top:12px;min-height:1.5em;color:var(--text3);font-size:.86em}
+.fund{display:grid;gap:8px;font-size:.9em}
+.fund div{display:flex;align-items:center;gap:10px;color:var(--text2)} .fund b{color:var(--text);font-weight:600} .fund i{width:6px;height:6px;border-radius:50%;background:var(--live);flex-shrink:0} .fund span{margin-left:auto;color:var(--text3);font:500 .86em var(--mono)}
+.kan{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.kan div{padding:10px;border-radius:12px;background:var(--raised);display:grid;gap:6px;align-content:start}
+.kan small{color:var(--text3);font-size:.78em;display:flex;align-items:center;gap:6px} .kan small::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--text3)}
+.kan .a small::before{background:var(--live)} .kan .i small::before{background:#3dd68c}
+.kan span{height:9px;border-radius:5px;background:var(--line2)} .kan span.s{width:70%}
+.mailv{font-size:.9em;display:grid;gap:6px}
+.mailv div{display:flex;gap:8px;padding:9px 12px;border-radius:11px;background:var(--raised)} .mailv span{color:var(--text3)} .mailv b{font-weight:500}
+.disc{display:flex;align-items:baseline;gap:10px} .disc b{font-size:2.1em;font-weight:700;letter-spacing:-.03em} .disc span{color:var(--text3);font-size:.9em}
+/* what stays on your computer */
+.flow{display:grid;grid-template-columns:1fr 54px 1.25fr 54px 1fr;align-items:center;margin-top:44px}
+.fl-col{display:grid;gap:8px} .fl-col span{padding:10px 14px;border-radius:12px;background:var(--panel);border:1px solid var(--line);font-size:.92em;color:var(--text2)}
+.fl-col small{color:var(--text3);font-size:.84em;padding:0 4px}
+.fl-beam{height:2px;background:repeating-linear-gradient(90deg,var(--live) 0 6px,transparent 6px 14px);background-size:14px 2px;animation:dash .7s linear infinite;opacity:.8}
+@keyframes dash{to{background-position:14px 0}}
+.fl-box{padding:20px;border-radius:22px;border:1.5px dashed color-mix(in srgb,var(--live) 45%,transparent);background:var(--live-dim);display:grid;gap:12px}
+.fl-box > b{font:500 .76em var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--live)}
+.fl-app{display:flex;align-items:center;gap:12px;padding:14px;border-radius:14px;background:var(--panel);box-shadow:0 0 0 1px var(--line2)}
+.fl-app img{width:34px;height:34px} .fl-app strong{display:block} .fl-app small{color:var(--text3)}
+.fl-file{font:500 .84em var(--mono);color:var(--text2);padding:9px 12px;border-radius:10px;background:var(--panel)}
+#privacy .ticks{grid-template-columns:1fr 1fr;gap:14px 40px;margin-top:40px}
+@media (max-width:900px){
+  .push{position:static;width:auto;margin:16px 0 0;animation:none}
+  .kicker{font-size:11px;letter-spacing:.04em;gap:8px}
+  .shot-bar span{display:none} .shot-tabs button{padding:0 10px}
+  .marq{flex-direction:column;align-items:flex-start;gap:12px;margin-top:40px} .marq-t{width:100%}
+  .lane,.axis{grid-template-columns:1fr;gap:8px} .axis{display:none} .race{padding:22px 18px}
+  .lane-t{height:64px} .lane-t .flag{top:30px} .lane.fast .flag{left:0} .race.in .lane.slow .bar{width:calc(86% - 6px)} .race.in .lane.fast .bar{width:calc(9% - 6px)}
+  .bento{grid-template-columns:1fr} .tile,.tile.w4,.tile.w3{grid-column:auto} .merge{flex-direction:column;align-items:flex-start} .merge .srcs{flex:none} .merge .arrow{flex:none;width:2px;height:26px;margin-left:22px;background:repeating-linear-gradient(180deg,var(--live) 0 6px,transparent 6px 14px);background-size:2px 14px;animation-name:dashv}
+  .flow{grid-template-columns:1fr;gap:0} .fl-beam{width:2px;height:34px;margin:0 auto;background:repeating-linear-gradient(180deg,var(--live) 0 6px,transparent 6px 14px);background-size:2px 14px;animation-name:dashv}
+  #privacy .ticks{grid-template-columns:1fr}
+}
+@keyframes dashv{to{background-position:0 14px}}
+@media (prefers-reduced-motion:reduce){.hero-radar .sw,.hero-radar i,.marq-in,.fl-beam,.merge .arrow,.push,.shot-tabs button.on.run::after{animation:none}.hero-radar i{opacity:.5}.js [data-rv]{opacity:1;transform:none;transition:none}.lane-t .bar,.lane-t .flag{transition:none}}
 </style>
+<script>document.documentElement.classList.add('js')</script>
 </head>
 <body>
 
@@ -142,8 +265,10 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
   </div>
 </div></nav>
 
-<header class="hero" id="top"><div class="wrap">
-  <span class="pill"><span class="dot"></span>Scanning while you sleep, study or work</span>
+<header class="hero" id="top">
+<div class="hero-radar" aria-hidden="true"><div class="rr"><span class="sw"></span></div><i style="--x:13%;--y:38%;--d:0s"></i><i style="--x:87%;--y:33%;--d:1.3s"></i><i style="--x:18%;--y:61%;--d:2.4s"></i><i style="--x:84%;--y:57%;--d:3.1s"></i><i style="--x:41%;--y:24.2%;--d:.7s"></i><i style="--x:93%;--y:47%;--d:1.9s"></i></div>
+<div class="wrap">
+  <span class="kicker"><span class="dot"></span>Scanning while you sleep, study or work</span>
   <h1>Be the <em>first</em> to apply, not the 500th.</h1>
   <p class="sub">Lookout watches company career pages, LinkedIn and job boards around the clock, and pushes matching startup jobs and internships to your phone minutes after they go up. It runs on your own computer, and your data never leaves it.</p>
   <div class="cta">
@@ -155,26 +280,47 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
 
   <figure class="stage">
     <div class="shot">
-      <div class="shot-bar"><i></i><i></i><i></i><span>Lookout</span></div>
-      <picture>
-        <source media="(prefers-color-scheme: light)" srcset="img/jobs-light.webp">
-        <img src="img/jobs-dark.webp" width="2880" height="1800" alt="The Lookout window. A saved view called Fresh software roles, 0 to 2 years, lists internships posted 9 to 59 minutes ago at PayPal, Seagate, Shopee and others. The open role shows its posting time, pay, work mode, requirements, and which of its skills the profile already has.">
-      </picture>
+      <div class="shot-bar"><i></i><i></i><i></i><span>Lookout</span>
+        <div class="shot-tabs" id="shotTabs" role="tablist" aria-label="Screens of the app">
+          <button type="button" role="tab" aria-selected="true" class="on" data-shot="jobs">Today</button>
+          <button type="button" role="tab" aria-selected="false" data-shot="role">A role</button>
+          <button type="button" role="tab" aria-selected="false" data-shot="pipeline">Pipeline</button>
+        </div>
+      </div>
+      <div class="shot-views" id="shotViews">
+        <picture class="on" data-shot="jobs">
+          <source media="(prefers-color-scheme: light)" srcset="img/jobs-light.webp">
+          <img src="img/jobs-dark.webp" width="2880" height="1800" alt="The Lookout window. On the left, roles posted in the last hour, newest first. On the right, a briefing: how many roles are new in the last hour and today, and this week&#39;s best matches for the profile, each with a score.">
+        </picture>
+        <picture data-shot="role">
+          <source media="(prefers-color-scheme: light)" data-srcset="img/role-light.webp">
+          <img data-src="img/role-dark.webp" width="2880" height="1800" alt="A Software Engineer Intern role open in Lookout: a score of 80, strong match, with 6 of the 8 skills it names; when it was posted and how soon Lookout found it; a contact email; and the steps from Saved to Interviewing.">
+        </picture>
+        <picture data-shot="pipeline">
+          <source media="(prefers-color-scheme: light)" data-srcset="img/pipeline-light.webp">
+          <img data-src="img/pipeline-dark.webp" width="2880" height="1800" alt="The Pipeline screen: fourteen roles on cards in five columns, Saved, Applied, Contacted, Interviewing and Closed. Some cards carry a note, and one applied to nine days ago is marked Follow up.">
+        </picture>
+      </div>
     </div>
-    <figcaption>The real app, a few minutes after a fresh install. Every role in this list went up within the last hour.</figcaption>
+    <div class="push" aria-hidden="true"><div class="push-h"><img src="logo.svg" alt=""><b>Lookout</b><span>now</span></div><div class="push-t">Backend Engineer Intern · Northwind Labs</div><div class="push-s">Posted <b>6 min ago</b> · matches Software internships</div></div>
+    <figcaption>The real app with a made-up profile. The alert card is an example of what reaches your phone.</figcaption>
   </figure>
+  <div class="marq" aria-label="Sources Lookout reads directly">
+    <span class="marq-l">Reads directly from</span>
+    <div class="marq-t"><div class="marq-in" aria-hidden="true"><span>Greenhouse</span><span>Lever</span><span>Ashby</span><span>Workable</span><span>SmartRecruiters</span><span>Recruitee</span><span>Workday</span><span>Oracle Cloud</span><span>Y Combinator</span><span>LinkedIn</span><span>Hacker News</span><span>GitHub job lists</span><span>Funding news</span><span>Greenhouse</span><span>Lever</span><span>Ashby</span><span>Workable</span><span>SmartRecruiters</span><span>Recruitee</span><span>Workday</span><span>Oracle Cloud</span><span>Y Combinator</span><span>LinkedIn</span><span>Hacker News</span><span>GitHub job lists</span><span>Funding news</span></div></div>
+  </div>
 </div></header>
 
 <section id="demo"><div class="wrap">
-  <span class="eyebrow">See it work</span>
-  <h2>Two minutes, start to finish.</h2>
-  <p class="lede">Recorded in the real app with a made-up profile: new roles coming in, matching against a résumé, filters, phone alerts, the browser extension. It has captions and a soft music track, no voice-over.</p>
+  <span class="eyebrow" data-rv>See it work</span>
+  <h2 data-rv>The whole thing in two and a half minutes.</h2>
+  <p class="lede" data-rv>Recorded in the real app with a made-up profile: new roles coming in, matching against a résumé, filters, phone alerts, the browser extension. It has captions and a soft music track, no voice-over.</p>
   <div class="shot demo" id="demoBox">
     <video id="demoVideo" controls preload="none" playsinline poster="video/poster.jpg" width="1920" height="1080">
       <source src="video/lookout-demo.mp4" type="video/mp4">
       <a href="video/lookout-demo.mp4">Download the demo video (MP4, 9 MB)</a>
     </video>
-    <button class="play" type="button" aria-label="Play the two-minute demo"><span><i></i>Watch the 2-minute demo</span></button>
+    <button class="play" type="button" aria-label="Play the demo"><span><i></i>Watch the demo</span></button>
   </div>
   <script>
     (() => { const box = document.getElementById('demoBox'), v = document.getElementById('demoVideo');
@@ -187,10 +333,15 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
 </div></section>
 
 <section id="early"><div class="wrap">
-  <span class="eyebrow">Why early matters</span>
-  <h2>The first hour decides who gets read.</h2>
-  <p class="lede">A popular listing collects hundreds of one-click applications in a day. The people who get a reply are mostly the ones who applied while the recruiter was still looking at a short list. Lookout's whole job is to put you there.</p>
-  <div class="facts">
+  <span class="eyebrow" data-rv>Why early matters</span>
+  <h2 data-rv>Early applications get read first.</h2>
+  <p class="lede" data-rv>A popular listing can collect hundreds of one-click applications in a day. Applying while the pile is still short gives you a better chance of being read. Lookout's whole job is to get you there early.</p>
+  <div class="race" data-rv>
+    <div class="lane slow"><span class="lane-l">Checking job boards yourself<small>whenever you remember to look</small></span><div class="lane-t"><i class="dot0"></i><i class="bar"></i><span class="flag">You see it hours or days later</span></div></div>
+    <div class="lane fast"><span class="lane-l">With Lookout<small>checked every 1–60 minutes</small></span><div class="lane-t"><i class="dot0"></i><i class="bar"></i><span class="flag">Your phone buzzes</span></div></div>
+    <div class="axis"><div><span style="left:0">Posted</span><span style="left:9%">+1 hour</span><span class="mid" style="left:50%">+12 hours</span><span>+1 day</span></div></div>
+  </div>
+  <div class="facts" data-rv>
     <div><strong>4 min</strong><span>How often LinkedIn's public search is checked for roles posted in the last few hours.</span></div>
     <div><strong>1–60 min</strong><span>How often each company's own careers board is checked. Busy boards more often; switch to Saver or Slow to go easy on your battery.</span></div>
     <div><strong>“6 min ago”</strong><span>Every alert says how old the posting was when it was sent, so you know what you're racing.</span></div>
@@ -198,59 +349,63 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
 </div></section>
 
 <section id="features"><div class="wrap">
-  <span class="eyebrow">What it does</span>
-  <h2>Everything between a posting and your application.</h2>
-  <div class="grid">
-    <div class="card wide">
-      <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 12l6-4"/></svg></div>
-      <h3>Goes to the source, and cuts out the middlemen</h3>
-      <p>Lookout reads companies' own applicant systems (Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, Oracle, Workday, YC) directly, alongside LinkedIn, Hacker News and remote-job boards. When the same role shows up in five places it becomes one card, and Apply opens the most direct link: short links are followed to where they land, and each role tells you before you click whether Apply opens the employer's own listing. Re-posts by recruiters are folded into the original, or clearly labelled when the original can't be found.</p>
-      <div class="chain"><span>Job board</span><i>→</i><span>Recruiter's page</span><i>→</i><span class="ok">The company's own listing</span></div>
+  <span class="eyebrow" data-rv>What it does</span>
+  <h2 data-rv>Everything between a posting and your application.</h2>
+  <div class="bento">
+    <div class="tile w4" data-rv>
+      <h3>Goes to the source, and folds the copies into one</h3>
+      <p>It reads companies' own careers systems directly. When a role shows up in five places it becomes one card, and Apply opens the most direct link, with a note saying whether that is the employer's own listing.</p>
+      <div class="vis merge"><div class="srcs"><span>LinkedIn</span><span>A job board</span><span>A recruiter's re-post</span><span>A GitHub list</span><span>The careers page</span></div><span class="arrow">→</span><div class="one"><b>One card</b><span>Apply opens the employer's own listing</span></div></div>
     </div>
-    <div class="card">
-      <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 1112 0c0 6 2.5 7 2.5 7h-17S6 15 6 9zM10 20a2 2 0 004 0"/></svg></div>
+    <div class="tile" data-rv style="--rd:.08s">
       <h3>Alerts on your phone</h3>
-      <p>Save a set of filters as a view and turn on its bell. New matches arrive through the free ntfy app. Each view can go to a different phone, so one computer can scout for a group of friends.</p>
+      <p>Save filters as a view and turn on its bell. Each view can alert a different phone.</p>
+      <div class="vis notes-stack"><div class="note-c"><b>ML Intern · a Series A startup</b><span>Posted <em>4 min ago</em></span></div><div class="note-c"><b>Backend Engineer, New Grad</b><span>Posted <em>11 min ago</em></span></div><div class="note-c"><b>Flutter Developer Intern</b><span>Posted <em>23 min ago</em></span></div></div>
     </div>
-    <div class="card">
-      <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3L5 14h6l-1 7 8-11h-6l1-7z"/></svg></div>
-      <h3>Follows the money</h3>
-      <p>Companies that just raised a round are about to hire. Lookout reads funding news and new YC batches, finds those companies' career pages, and checks them every couple of minutes.</p>
+    <div class="tile" data-rv>
+      <h3>Matched to you</h3>
+      <p>Every role gets a score from the skills your résumé, LinkedIn and GitHub show.</p>
+      <div class="vis matchv"><span class="num"><svg width="62" height="62" viewBox="0 0 62 62"><circle cx="31" cy="31" r="27" fill="none" stroke="var(--line2)" stroke-width="6"/><circle cx="31" cy="31" r="27" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-dasharray="119 170" transform="rotate(-90 31 31)"/></svg><b>70</b></span><div class="chips"><span class="y">Python</span><span class="y">FastAPI</span><span class="y">Docker</span><span class="y">PostgreSQL</span><span>Kafka</span><span>Go</span></div></div>
     </div>
-    <div class="card">
-      <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg></div>
+    <div class="tile" data-rv style="--rd:.08s">
       <h3>Filters that mean it</h3>
-      <p>Field, role, internship or full-time, years asked for, visa, remote, country, pay, degree, internship term, funding stage and skills. Click once to include, twice to exclude. Roles that want more experience than you have are hidden unless you ask to see them.</p>
+      <p>Click once to include, again to exclude. Try it:</p>
+      <div class="vis"><div class="tri-demo" id="triDemo"><button type="button">Internship</button><button type="button">Remote</button><button type="button">Sponsors visa</button><button type="button">Citizens only</button><button type="button">Senior</button></div><div class="tri-say" id="triSay">Showing every role.</div></div>
     </div>
-    <div class="card">
-      <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M4 7l8 6 8-6"/></svg></div>
+    <div class="tile" data-rv style="--rd:.16s">
+      <h3>Follows the money</h3>
+      <p>Startups that just raised are about to hire. Their careers pages get checked every couple of minutes.</p>
+      <div class="vis fund"><div><i></i><b>Series A</b> announced<span>today</span></div><div><i></i>Careers page found<span>+2 min</span></div><div><i></i>First role posted<span>alert</span></div></div>
+    </div>
+    <div class="tile" data-rv>
+      <h3>A pipeline you can drag</h3>
+      <p>Saved, applied, contacted, interviewing. Roles that go quiet for a week get a nudge.</p>
+      <div class="vis kan"><div><small>Saved</small><span></span><span class="s"></span></div><div class="a"><small>Applied</small><span></span><span class="s"></span><span></span></div><div class="i"><small>Interviewing</small><span class="s"></span></div></div>
+    </div>
+    <div class="tile" data-rv style="--rd:.08s">
       <h3>Who to write to</h3>
-      <p>For each role Lookout looks for a published hiring email and the founders' public profiles, and drafts a short outreach note from your profile that you can edit and send yourself.</p>
+      <p>A published hiring email, the founders' public profiles, and a short note drafted from your profile.</p>
+      <div class="vis mailv"><div><span>To</span><b>careers@ the company</b></div><div><span>Draft</span><b>ready to edit and send</b></div></div>
     </div>
-    <div class="card">
-      <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="10" rx="1.5"/><rect x="17" y="4" width="4" height="13" rx="1.5"/></svg></div>
-      <h3>A pipeline for what you've applied to</h3>
-      <p>Save, applied, contacted, interview, rejected. Notes on each role. It lives in the same place as the search, so nothing gets lost in a spreadsheet.</p>
-    </div>
-    <div class="card">
-      <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5M11 8v6M8 11h6"/></svg></div>
-      <h3>Finds new sources, or uses yours</h3>
-      <p>Every link Lookout sees is checked for a careers board it doesn't know yet, and it searches GitHub for new community job lists. Prefer your own? Turn that off and start from a list a friend shared.</p>
+    <div class="tile" data-rv style="--rd:.16s">
+      <h3>Finds new sources</h3>
+      <p>Every link it sees is checked for a careers board it doesn't know yet. Or start from a friend's list.</p>
+      <div class="vis disc"><b>2,000+</b><span>careers boards in the starter list</span></div>
     </div>
   </div>
 </div></section>
 
 <section id="filters"><div class="wrap split">
-  <figure class="shot side tall">
+  <figure data-rv class="shot side tall">
     <picture>
       <source media="(prefers-color-scheme: light)" srcset="img/filters-light.webp">
       <img src="img/filters-dark.webp" width="880" height="1800" loading="lazy" alt="The filter panel. Under Visa, Sponsors visa is included and Citizens / clearance only is excluded, shown struck through in red. Under Skills, My skills has ticked every skill on the profile.">
     </picture>
   </figure>
   <div>
-    <span class="eyebrow">Filters</span>
-    <h2>Say exactly what you're after. Once.</h2>
-    <p class="lede">Every filter shows how many roles it would leave before you click it. Save a combination as a view, and the same rules decide which roles reach your phone.</p>
+    <span class="eyebrow" data-rv>Filters</span>
+    <h2 data-rv>Say exactly what you're after. Once.</h2>
+    <p class="lede" data-rv>Every filter shows how many roles it would leave before you click it. Save a combination as a view, and the same rules decide which roles reach your phone.</p>
     <ul class="ticks">
       <li><span><b>Include or exclude anything.</b> Click an option once to include it, again to exclude it, once more to clear it. Rule out citizens-only roles, Java, or a whole field.</span></li>
       <li><span><b>Words, in the whole posting.</b> Show only roles that mention “python” or “rust”; hide ones that mention “senior”. It reads the full description, not just the title.</span></li>
@@ -262,13 +417,13 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
 </div></section>
 
 <section id="sources"><div class="wrap">
-  <span class="eyebrow">Coverage</span>
-  <h2>The longer it runs, the more it sees.</h2>
-  <p class="lede">Within minutes of a fresh install, Lookout was watching 1,854 company career boards it found on its own, and checking the busiest ones every couple of minutes.</p>
-  <figure class="shot wide">
+  <span class="eyebrow" data-rv>Coverage</span>
+  <h2 data-rv>The longer it runs, the more it sees.</h2>
+  <p class="lede" data-rv>Within minutes of a fresh install, Lookout was watching 1,854 company career boards it found on its own, and checking the busiest ones every couple of minutes.</p>
+  <figure data-rv class="shot wide">
     <picture>
       <source media="(prefers-color-scheme: light)" srcset="img/sources-light.webp">
-      <img src="img/sources-dark.webp" width="2880" height="1800" loading="lazy" alt="The Sources page: 1,854 company boards, a bar showing how often they are checked, where they were found, and a list of boards discovered in the last few minutes.">
+      <img src="img/sources-dark.webp" width="2880" height="1800" loading="lazy" alt="The Sources page: 2,186 company boards, a bar showing how often they are checked, where they were found, and a list of boards discovered in the last few minutes.">
     </picture>
   </figure>
   <div class="grid">
@@ -292,9 +447,9 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
 
 <section id="extension"><div class="wrap split">
   <div>
-    <span class="eyebrow">Browser extension</span>
-    <h2>Any job page, checked against you.</h2>
-    <p class="lede">Found a role somewhere Lookout doesn't scan? Click the Lookout button and it reads the posting, compares it with your profile, and tells you whether Lookout already has it.</p>
+    <span class="eyebrow" data-rv>Browser extension</span>
+    <h2 data-rv>Any job page, checked against you.</h2>
+    <p class="lede" data-rv>Found a role somewhere Lookout doesn't scan? Click the Lookout button and it reads the posting, compares it with your profile, and tells you whether Lookout already has it.</p>
     <ul class="ticks">
       <li><span><b>The skills gap, at a glance.</b> Which of the role's skills you have and which you're missing, plus a warning when it wants more experience than you have or is citizens-only.</span></li>
       <li><span><b>Already in Lookout?</b> Where it was seen, when it was posted, and whether Apply there goes to the employer.</span></li>
@@ -304,7 +459,7 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
     </ul>
     <p class="fine" style="text-align:left">Edge and Chrome. Included with the download; load it from the <code>extension</code> folder.</p>
   </div>
-  <figure class="shot side" style="max-width:380px">
+  <figure data-rv class="shot side" style="max-width:380px">
     <picture>
       <source media="(prefers-color-scheme: light)" srcset="img/extension-light.webp">
       <img src="img/extension-dark.webp" width="760" height="1126" loading="lazy" alt="The Lookout extension on a Junior AI Engineer posting at Christy Industries: 7 of 19 skills you have, with Python, SQL, Machine Learning, PyTorch, LLMs, Docker and Git highlighted. Lookout already has this role, seen on a GitHub list 27 days ago, and Apply there opens the employer's own listing. Buttons: Save to pipeline, Open in Lookout, Watch this company.">
@@ -314,9 +469,9 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
 
 <section id="resume"><div class="wrap split">
   <div>
-    <span class="eyebrow">Matched to you</span>
-    <h2>Drop in your résumé. It does the rest.</h2>
-    <p class="lede">Lookout reads your résumé on your own computer and builds your profile from it, then ranks every role against what you can do.</p>
+    <span class="eyebrow" data-rv>Matched to you</span>
+    <h2 data-rv>Drop in your résumé. It does the rest.</h2>
+    <p class="lede" data-rv>Lookout reads your résumé on your own computer and builds your profile from it, then ranks every role against what you can do.</p>
     <ul class="ticks">
       <li><span><b>Reads PDF, Word or pasted text.</b> Skills, education, internships, jobs and projects with their tech stacks.</span></li>
       <li><span><b>Technical skills come first.</b> Languages, frameworks and tools drive the match. Words like “Operations” and “Communication” are kept, quietly.</span></li>
@@ -326,16 +481,16 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
       <li><span><b>Several profiles.</b> One per person sharing the computer, or one per kind of role you're going for, each with its own views and pipeline.</span></li>
     </ul>
   </div>
-  <figure class="shot side">
+  <figure data-rv class="shot side">
     <picture>
       <source media="(prefers-color-scheme: light)" srcset="img/profile-light.webp">
-      <img src="img/profile-dark.webp" width="1488" height="1501" loading="lazy" alt="Settings, Profile: a résumé has been imported and 21 technical skills were picked out of it, from Python and Go to Kubernetes and QEMU, along with years of experience, degree and graduation year.">
+      <img src="img/profile-dark.webp" width="1560" height="1500" loading="lazy" alt="Settings, Profile: a résumé has been imported and 21 technical skills were picked out of it, from Python and Go to Kubernetes and QEMU, along with years of experience, degree and graduation year.">
     </picture>
   </figure>
 </div></section>
 
 <section><div class="wrap">
-  <span class="eyebrow">Getting started</span>
+  <span class="eyebrow" data-rv>Getting started</span>
   <h2>Three steps, about five minutes.</h2>
   <div class="steps">
     <div><h3>Download and open</h3><p>Unzip, double-click <code>Lookout.exe</code>. It starts scanning straight away and keeps going in the tray when you close the window.</p></div>
@@ -344,13 +499,18 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
   </div>
 </div></section>
 
-<section id="privacy"><div class="wrap split">
-  <div>
-    <span class="eyebrow">Private by design</span>
-    <h2>Your search is nobody else's business.</h2>
-    <p class="lede">Lookout is not a website and has no servers. It is a program on your computer that reads public job listings.</p>
+<section id="privacy"><div class="wrap">
+  <span class="eyebrow" data-rv>Private by design</span>
+  <h2 data-rv>Your search is nobody else's business.</h2>
+  <p class="lede" data-rv>Lookout is not a website and has no servers. It is a program on your computer that reads public job listings.</p>
+  <div class="flow" data-rv aria-label="Public pages are read by Lookout on your computer; only an optional alert leaves it">
+    <div class="fl-col"><span>Company careers pages</span><span>LinkedIn's public search</span><span>GitHub job lists</span><span>Funding news</span></div>
+    <i class="fl-beam"></i>
+    <div class="fl-box"><b>Your computer</b><div class="fl-app"><img src="logo.svg" alt=""><div><strong>Lookout</strong><small>scans · removes duplicates · matches to you</small></div></div><span class="fl-file">one file: résumé, profile, pipeline</span></div>
+    <i class="fl-beam"></i>
+    <div class="fl-col"><span>An alert to your phone</span><small>A role's title and link, through the free ntfy app, and only for views whose bell you turn on.</small></div>
   </div>
-  <ul class="ticks">
+  <ul class="ticks" data-rv>
     <li><span><b>No account.</b> There is nothing to sign up for and nobody to give your details to.</span></li>
     <li><span><b>Your data stays in one file on your disk.</b> Résumé, profile, saved roles and notes.</span></li>
     <li><span><b>No logins to other sites.</b> It reads only what anyone can see without signing in, and never asks for your LinkedIn password.</span></li>
@@ -360,8 +520,8 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
 </div></section>
 
 <section id="faq"><div class="wrap">
-  <span class="eyebrow">Questions</span>
-  <h2>Good to know before you download.</h2>
+  <span class="eyebrow" data-rv>Questions</span>
+  <h2 data-rv>Good to know before you download.</h2>
   <div class="faq">
     <details><summary>Does my computer have to stay on?</summary><p>Yes. Lookout scans only while it is running, so roles posted while your computer is asleep are found when it wakes up. A slower sweep of the last day catches those, but the alert will be later.</p></details>
     <details><summary>What do I need installed?</summary><p>Windows 10 or 11 and Node.js 20 or newer. The Edge WebView2 runtime is also needed; Windows 11 has it already. There are no other packages to install.</p></details>
@@ -388,9 +548,35 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
         <a class="handle" href="https://x.com/PraneelPaliwal" target="_blank" rel="noopener" aria-label="@PraneelPaliwal on X"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/></svg>@PraneelPaliwal</a>
       </div>
     </div>
-    <div class="notes"><span>Lookout · open source under <a href="https://github.com/FalconFuryX77/Lookout/blob/main/LICENSE">AGPL-3.0</a></span><span>Screenshots are of the real app with a made-up sample profile, taken on 16 November 2026. The roles in them were real public listings that day.</span></div>
+    <div class="notes"><span>Lookout · open source under <a href="https://github.com/FalconFuryX77/Lookout/blob/main/LICENSE">AGPL-3.0</a></span><span>Screenshots are of the real app with a made-up sample profile, taken on 17 November 2026. The roles in them were real public listings that day.</span></div>
   </footer>
 </div>
 
+<script>
+(() => {
+  const io = 'IntersectionObserver' in window ? new IntersectionObserver(es => { for (const e of es) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }, { rootMargin: '0px 0px -8% 0px', threshold: .08 }) : null;
+  document.querySelectorAll('[data-rv]').forEach(el => io ? io.observe(el) : el.classList.add('in'));
+  const tabs = [...document.querySelectorAll('#shotTabs button')], views = [...document.querySelectorAll('#shotViews picture')];
+  if (tabs.length) {
+    const calm = matchMedia('(prefers-reduced-motion: reduce)').matches; let auto = !calm, timer = 0, seen = false, hover = false;
+    const fill = p => { p.querySelectorAll('[data-srcset]').forEach(e => { e.srcset = e.dataset.srcset; e.removeAttribute('data-srcset'); }); p.querySelectorAll('[data-src]').forEach(e => { e.src = e.dataset.src; e.removeAttribute('data-src'); }); };
+    const show = (name, run) => { tabs.forEach(b => { const on = b.dataset.shot === name; b.classList.toggle('on', on); b.classList.toggle('run', on && !!run); b.setAttribute('aria-selected', on ? 'true' : 'false'); }); views.forEach(p => { const on = p.dataset.shot === name; if (on) fill(p); p.classList.toggle('on', on); }); };
+    const next = () => { clearTimeout(timer); if (!auto || !seen || hover || document.hidden) return; timer = setTimeout(() => { const i = tabs.findIndex(b => b.classList.contains('on')); const to = tabs[(i + 1) % tabs.length]; const p = views.find(v => v.dataset.shot === to.dataset.shot); fill(p); const img = p.querySelector('img'); const go = () => { if (!auto) return; show(to.dataset.shot, true); next(); }; if (img.complete) go(); else img.addEventListener('load', go, { once: true }); }, 7000); };
+    tabs.forEach(b => b.addEventListener('click', () => { auto = false; clearTimeout(timer); show(b.dataset.shot, false); }));
+    const stage = document.querySelector('.stage');
+    stage.addEventListener('pointerenter', () => { hover = true; clearTimeout(timer); tabs.forEach(b => b.classList.remove('run')); });
+    stage.addEventListener('pointerleave', () => { hover = false; if (auto) { show(tabs.find(b => b.classList.contains('on')).dataset.shot, true); next(); } });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && auto && !hover) next(); });
+    const start = () => { views.forEach(fill); };
+    if (document.readyState === 'complete') setTimeout(start, 1200); else addEventListener('load', () => setTimeout(start, 1200));
+    if (auto && 'IntersectionObserver' in window) new IntersectionObserver(es => { seen = es[0].isIntersecting; if (seen && !hover) { show(tabs.find(b => b.classList.contains('on')).dataset.shot, true); next(); } else { clearTimeout(timer); } }, { threshold: .35 }).observe(stage);
+  }
+  // filters demo: include, exclude, clear
+  const say = document.getElementById('triSay'), demo = document.getElementById('triDemo');
+  const update = () => { const inc = [...demo.querySelectorAll('.inc')].map(b => b.textContent), exc = [...demo.querySelectorAll('.exc')].map(b => b.textContent);
+    say.textContent = !inc.length && !exc.length ? 'Showing every role.' : 'Showing ' + (inc.length ? inc.join(' + ') : 'every role') + (exc.length ? ', never ' + exc.join(' or ') : '') + '.'; };
+  demo.querySelectorAll('button').forEach(b => b.addEventListener('click', () => { const next = b.classList.contains('inc') ? 'exc' : b.classList.contains('exc') ? '' : 'inc'; b.classList.remove('inc', 'exc'); if (next) b.classList.add(next); b.setAttribute('aria-pressed', next ? 'true' : 'false'); update(); }));
+})();
+</script>
 </body>
 </html>
