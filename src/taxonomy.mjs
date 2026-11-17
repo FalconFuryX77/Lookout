@@ -1,5 +1,6 @@
 // Deep job attributes used by the filters: field/specialty, years of experience, visa
 // sponsorship, work mode, degree, normalized pay and internship term.
+import { skillInfo } from '../public/skills.mjs';
 
 export const FIELDS = {
   'Software & IT': ['AI / ML', 'Data Science', 'Data Engineering', 'Data Analytics', 'Frontend', 'Backend', 'Full-stack', 'Mobile', 'Software Engineering', 'DevOps / Cloud', 'Security', 'QA / Testing', 'Embedded / Firmware', 'IT & Support', 'Quant'],
@@ -194,12 +195,69 @@ export function termsOf(text = '') {
 }
 
 /** Compute all deep attributes for a job record (always recomputed; cheap). */
+// ── Computer science and its applications ─────────────────────────────────────────────────────────
+// Lookout is for people in computing: software, AI, data, security, infrastructure, robotics, embedded,
+// chips, quant, and whatever new niche comes next. A role counts when
+//   1. its specialty is a computing one, or
+//   2. its title names computing work, or
+//   3. the posting asks for several technical skills (languages, frameworks, tools) and its title is not
+//      plainly another profession.
+// Rule 3 is what keeps the app current: a niche that did not exist when this was written ("agent reliability
+// engineer", "spatial computing developer") still asks for Python, C++, CUDA or Kubernetes.
+// Extra title words can arrive with the vocabulary update (vocab.json), without a new version of the app.
+export const COMPUTING_SPECIALTIES = new Set([...FIELDS['Software & IT'], 'Robotics']);
+const COMPUTING_TITLE_WORDS = [
+  'software', 'developer', 'programmer', 'coder', 'computer', 'computing', 'computational', 'cyber\w*', 'robot\w*', 'autonom\w*', 'self-driving', 'mechatronic\w*',
+  'machine learning', 'deep learning', 'ml', 'mlops', 'ai', 'artificial intelligence', 'llms?', 'genai', 'generative', 'nlp', 'computer vision', 'perception', 'reinforcement learning', 'agentic', 'ai agents?', 'agent (?:engineer|developer|builder)', 'prompt engineer\\w*', 'drivers? (?:engineer|developer)', 'device drivers?',
+  'data engineer\w*', 'data scien\w*', 'data platform', 'analytics engineer\w*', 'database', 'dba', 'etl',
+  'cloud', 'devops', 'devsecops', 'sre', 'site reliability', 'infrastructure', 'platform engineer\w*', 'kubernetes', 'distributed systems', 'networking engineer', 'network engineer', 'systems? administrator', 'sysadmin',
+  'security engineer\w*', 'appsec', 'infosec', 'penetration', 'red team', 'cryptograph\w*', 'blockchain', 'web3', 'smart contracts?',
+  'quantum', 'compilers?', 'kernel', 'operating systems?', 'embedded', 'firmware', 'fpga', 'asic', 'rtl', 'verilog', 'soc', 'silicon', 'chip', 'gpu', 'cuda', 'hpc', 'high[- ]performance computing', 'computer architecture',
+  'graphics (?:engineer|programmer|developer|software)', 'computer graphics', 'rendering engineer', 'shader', 'game (?:developer|engineer|programmer|designer)', 'gameplay', 'simulation engineer', 'algorithms?', 'quant(?:itative)? (?:developer|researcher|engineer|trader)',
+  'web', 'frontend', 'front-end', 'backend', 'back-end', 'full[- ]?stack', 'mobile', 'ios', 'android', 'app developer', 'api', 'sdet', 'test automation', 'qa automation', 'qa engineer',
+  'it (?:support|specialist|engineer|administrator|technician|analyst)', 'help ?desk', 'solutions? engineer', 'sales engineer', 'forward[- ]deployed', 'developer (?:advocate|relations|experience)', 'devrel', 'technical (?:product manager|program manager)',
+];
+let computingTitle = new RegExp(`\\b(?:${COMPUTING_TITLE_WORDS.join('|')})\\b`, 'i');
+/** Words from the vocabulary update that also mark a title as computing work. */
+export function addComputingWords(words = []) {
+  const extra = words.map(w => String(w).trim()).filter(w => w && w.length < 60 && !/[()[\]{}]/.test(w)).map(w => w.replace(/[.*+?^${}|\\]/g, '\\$&'));
+  if (extra.length) computingTitle = new RegExp(`\\b(?:${[...COMPUTING_TITLE_WORDS, ...extra].join('|')})\\b`, 'i');
+}
+// Plainly another profession, whatever tools the posting lists ("Sales Development Rep, SaaS", "Clinical Nurse").
+const OTHER_PROFESSION = /\b(nurse|nursing|physician|doctor|dentist|pharmacist|therap\w*|clinic\w*|caregiver|teacher|tutor|lecturer|professor of (?!computer)|economist|finance|financial|accountant|accounting|bookkeep\w*|auditor|tax|lawyer|attorney|paralegal|counsel|recruiter|recruiting|talent acquisition|sales (?:rep|representative|development|executive|manager|associate)|account (?:executive|manager)|business development|marketing|marketer|growth (?:lead|manager|hacker)|copywriter|journalist|editor|social media|customer (?:success|service|support) (?:rep|representative|specialist|associate|manager)|cashier|retail|store|warehouse|(?<!device |kernel |framebuffer |display |gpu |graphics |linux |storage |network )driver(?! (?:engineer|developer|development|software))|courier|chef|cook|barista|server|bartender|housekeep\w*|janitor|electrician|plumber|welder|machinist|carpenter|mechanic|hvac|civil engineer|structural engineer|geotechnical|surveyor|construction|architectural|mechanical engineer\w*|mechanical design|electrical engineer\w*|power electronics|geolog\w*|hydrogeolog\w*|mining|legal|chemical engineer|process engineer|manufacturing engineer|quality engineer|chemist|biologist|lab technician|financial analyst|investment|banker|actuar\w*|underwriter|insurance|real estate|property|hr (?:generalist|business partner|manager)|human resources|executive assistant|receptionist|office manager|operations (?:associate|agent|lead|manager|specialist|coordinator|analyst)|product manager|product owner|volunteer)\b/i;
+// Titles that are computing even when the head word is another profession's ("Software Engineer, Payments Sales").
+const SURE_COMPUTING = /\b(software|developer|programmer|machine learning|ml engineer|data engineer|data scientist|data analyst|analytics engineer|bi developer|devops|sre|site reliability|security engineer|cybersecurity (?:engineer|analyst|architect|specialist|auditor|consultant)|firmware|embedded|robotics engineer|computer vision|backend|frontend|full[- ]?stack|technical (?:product|program) manager)\b/i;
+// Only skills of computing work count: languages, frameworks, data and infrastructure tools. Design tools, CAD
+// and general skills do not, and of the hardware group only the computing end (embedded, firmware, FPGA, ROS).
+const CS_GROUPS = new Set(['Languages', 'AI / ML', 'Backend', 'Frontend', 'Data', 'Infra', 'Tools & practices']);
+const CS_HARDWARE = /^(embedded|firmware|fpga|ros|robotics|verilog|vhdl|systemverilog|cuda)$/i;
+function computingSkills(job) {
+  let k = 0, langs = 0;
+  for (const s of job.skills || []) {
+    const name = typeof s === 'string' ? s : s?.name; if (!name) continue;
+    const i = skillInfo(name); if (!i.tech) continue;
+    if (CS_GROUPS.has(i.group) || (i.group === 'Hardware' && CS_HARDWARE.test(i.canonical))) { k++; if (i.group === 'Languages') langs++; }
+  }
+  return { k, langs };
+}
+/** Is this role computer science or one of its applications? */
+export function isComputingRole(job, specialty = job.specialty) {
+  const title = String(job.title || '');
+  if (SURE_COMPUTING.test(title)) return true;
+  const other = OTHER_PROFESSION.test(title);
+  if (COMPUTING_SPECIALTIES.has(specialty)) return !other || computingTitle.test(title);
+  if (computingTitle.test(title)) return !other;
+  if (other) return false;
+  const { k, langs } = computingSkills(job);
+  return k >= 4 || (k >= 3 && langs >= 1);
+}
+
 export function deepAttributes(job) {
   const text = job.description || '';
   const specialty = classifyRole(job.title, text);
   const yrs = yearsOf(job.title, text, job.level);
   return {
-    specialty, field: FIELD_OF[specialty] || 'Other',
+    specialty, field: FIELD_OF[specialty] || 'Other', cs: isComputingRole(job, specialty),
     yearsMin: yrs?.min ?? null, yearsMax: yrs?.max ?? null,
     visa: visaOf(`${job.title}\n${text}`),
     workMode: workModeOf(`${job.location || ''} ${(job.title.match(/\((hybrid|remote|on-?site)\)|\b(hybrid|remote)\b/i) || [''])[0]}`, text, job.remote),

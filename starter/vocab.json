@@ -1,0 +1,15 @@
+{
+ "lookout": "vocab",
+ "version": 1,
+ "description": "Words that mark a role title as computing work, on top of the ones built into Lookout. Lookout reads this file from GitHub once a day, so new kinds of work can be recognised without a new version of the app. Most new niches are caught anyway by the skills a posting asks for.",
+ "computingTitleWords": [
+  "mlops", "llmops", "aiops", "finops engineer", "platform reliability", "observability", "inference", "model serving", "evals?", "red teaming",
+  "agent reliability", "agent infrastructure", "context engineer\\w*", "rag", "vector database", "retrieval",
+  "spatial computing", "xr", "ar/vr", "vr", "augmented reality", "virtual reality", "metaverse",
+  "neuromorphic", "photonic computing", "quantum computing", "quantum software", "qubits?",
+  "bioinformatics", "computational biology", "cheminformatics", "geospatial", "gis developer",
+  "digital twin", "edge computing", "iot", "ros", "slam", "motion planning", "controls software", "autopilot", "uav software", "drone software",
+  "zero knowledge", "zk", "smart contract", "defi", "protocol engineer",
+  "data annotation engineer", "synthetic data", "simulation", "game engine", "unreal", "unity developer", "shader", "webgpu", "wasm", "webassembly"
+ ]
+}

@@ -1,5 +1,8 @@
+# Builds Lookout.exe (next to this script, or at -Out).
+param([string]$Out)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $Out) { $Out = Join-Path $root 'Lookout.exe' }
 $framework = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319'
 if (-not (Test-Path (Join-Path $framework 'csc.exe'))) { $framework = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319' }
 $compiler = Join-Path $framework 'csc.exe'
@@ -18,7 +21,7 @@ if ($missing) {
 }
 
 $arguments = @(
-    '/nologo', '/target:winexe', '/optimize+', "/out:$(Join-Path $root 'Lookout.exe')", "/win32icon:$(Join-Path $root 'desktop\lookout.ico')",
+    '/nologo', '/target:winexe', '/optimize+', "/out:$Out", "/win32icon:$(Join-Path $root 'desktop\lookout.ico')",
     "/reference:$(Join-Path $framework 'System.dll')",
     "/reference:$(Join-Path $framework 'System.Core.dll')",
     "/reference:$(Join-Path $framework 'System.Drawing.dll')",
@@ -29,4 +32,4 @@ $arguments = @(
 )
 & $compiler $arguments
 if ($LASTEXITCODE -ne 0) { throw "Lookout desktop build failed with exit code $LASTEXITCODE." }
-Write-Host 'Built Lookout.exe.'
+Write-Host "Built $Out."

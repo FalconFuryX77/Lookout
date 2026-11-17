@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Lookout",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Compare any job page with your Lookout profile, and add the skills your GitHub, Hugging Face, Stack Overflow or Kaggle profile shows.",
   "action": {
     "default_title": "Compare this job with Lookout",

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Lookout: startup jobs, minutes after they're posted</title>
-<meta name="description" content="Lookout is a free Windows app that scans company career pages, LinkedIn and job boards around the clock, and pushes matching startup jobs and internships to your phone minutes after they go up. It runs on your computer; your data stays there.">
+<meta name="description" content="Lookout is a free Windows app that scans company career pages, LinkedIn and job boards around the clock, and pushes matching computer-science jobs and internships to your phone minutes after they go up. It runs on your computer; your data stays there.">
 <meta property="og:title" content="Lookout: startup jobs, minutes after they're posted">
 <meta property="og:description" content="A local job scanner that finds roles early, cuts out middlemen, matches them to the skills your résumé, LinkedIn and GitHub show, and alerts your phone.">
 <meta name="theme-color" content="#0b0b0e">
@@ -226,6 +226,9 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
 .kan span{height:9px;border-radius:5px;background:var(--line2)} .kan span.s{width:70%}
 .mailv{font-size:.9em;display:grid;gap:6px}
 .mailv div{display:flex;gap:8px;padding:9px 12px;border-radius:11px;background:var(--raised)} .mailv span{color:var(--text3)} .mailv b{font-weight:500}
+.gone{display:grid;gap:6px;font-size:.88em}
+.gone div{display:flex;justify-content:space-between;gap:10px;padding:9px 12px;border-radius:11px;background:var(--raised)}
+.gone b{font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .gone span{color:var(--live);white-space:nowrap;flex-shrink:0} .gone .x b{color:var(--text3);text-decoration:line-through} .gone .x span{color:var(--text3)}
 .disc{display:flex;align-items:baseline;gap:10px} .disc b{font-size:2.1em;font-weight:700;letter-spacing:-.03em} .disc span{color:var(--text3);font-size:.9em}
 /* what stays on your computer */
 .flow{display:grid;grid-template-columns:1fr 54px 1.25fr 54px 1fr;align-items:center;margin-top:44px}
@@ -270,7 +273,7 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
 <div class="wrap">
   <span class="kicker"><span class="dot"></span>Scanning while you sleep, study or work</span>
   <h1>Be the <em>first</em> to apply, not the 500th.</h1>
-  <p class="sub">Lookout watches company career pages, LinkedIn and job boards around the clock, and pushes matching startup jobs and internships to your phone minutes after they go up. It runs on your own computer, and your data never leaves it.</p>
+  <p class="sub">Lookout watches company career pages, LinkedIn and job boards around the clock, and pushes matching computer-science jobs and internships to your phone minutes after they go up. It runs on your own computer, and your data never leaves it.</p>
   <div class="cta">
     <a class="btn primary" href="https://github.com/FalconFuryX77/Lookout/releases/latest">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>Download for Windows</a>
@@ -378,19 +381,19 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
       <div class="vis fund"><div><i></i><b>Series A</b> announced<span>today</span></div><div><i></i>Careers page found<span>+2 min</span></div><div><i></i>First role posted<span>alert</span></div></div>
     </div>
     <div class="tile" data-rv>
-      <h3>A pipeline you can drag</h3>
-      <p>Saved, applied, contacted, interviewing. Roles that go quiet for a week get a nudge.</p>
-      <div class="vis kan"><div><small>Saved</small><span></span><span class="s"></span></div><div class="a"><small>Applied</small><span></span><span class="s"></span><span></span></div><div class="i"><small>Interviewing</small><span class="s"></span></div></div>
+      <h3>Gone when it's gone</h3>
+      <p>When a company takes a role down, it leaves Lookout within about 20 minutes. Talent pools and re-posted roles are hidden, with the reason.</p>
+      <div class="vis gone"><div><b>Backend Engineer, Payments</b><span>open</span></div><div class="x"><b>Platform Engineer</b><span>taken down 12 min ago</span></div><div class="x"><b>Talent Community, Engineering</b><span>not a real opening</span></div></div>
     </div>
     <div class="tile" data-rv style="--rd:.08s">
       <h3>Who to write to</h3>
-      <p>A published hiring email, the founders' public profiles, and a short note drafted from your profile.</p>
-      <div class="vis mailv"><div><span>To</span><b>careers@ the company</b></div><div><span>Draft</span><b>ready to edit and send</b></div></div>
+      <p>A published hiring email, the founders' public profiles, the company on Wellfound, and a short note drafted from your profile.</p>
+      <div class="vis mailv"><div><span>To</span><b>careers@ the company</b></div><div><span>Wellfound</span><b>a note ready to paste</b></div></div>
     </div>
     <div class="tile" data-rv style="--rd:.16s">
       <h3>Finds new sources</h3>
       <p>Every link it sees is checked for a careers board it doesn't know yet. Or start from a friend's list.</p>
-      <div class="vis disc"><b>2,000+</b><span>careers boards in the starter list</span></div>
+      <div class="vis disc"><b>6,000+</b><span>careers boards with computing roles in the starter list</span></div>
     </div>
   </div>
 </div></section>
@@ -430,7 +433,7 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
     <div class="card">
       <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg></div>
       <h3>A starter list, one click away</h3>
-      <p>About 2,000 careers boards and 8 community lists that were posting recently. Add it on day one instead of waiting for Lookout to find them.</p>
+      <p>About 6,000 careers boards with computer-science roles and 8 community lists, rebuilt every month from Common Crawl. Add it on day one instead of waiting for Lookout to find them.</p>
     </div>
     <div class="card">
       <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.2 10.9l7.6-3.8M8.2 13.1l7.6 3.8"/></svg></div>
@@ -524,7 +527,9 @@ code{font:.9em var(--mono);background:var(--raised);padding:2px 6px;border-radiu
   <h2 data-rv>Good to know before you download.</h2>
   <div class="faq">
     <details><summary>Does my computer have to stay on?</summary><p>Yes. Lookout scans only while it is running, so roles posted while your computer is asleep are found when it wakes up. A slower sweep of the last day catches those, but the alert will be later.</p></details>
-    <details><summary>What do I need installed?</summary><p>Windows 10 or 11 and Node.js 20 or newer. The Edge WebView2 runtime is also needed; Windows 11 has it already. There are no other packages to install.</p></details>
+    <details><summary>What do I need installed?</summary><p>Just Windows 10 or 11. Lookout brings its own copy of Node.js, so there is nothing else to install; the Edge WebView2 runtime it uses is already on Windows 11. To run it from source on a Mac or Linux, you need Node.js 22.13 or newer.</p></details>
+    <details><summary>Is it only for computer science?</summary><p>That is what it is built for: software, AI, data, security, infrastructure, robotics, embedded, chips, quant, and new niches as they appear, recognised by the skills a posting asks for. Other fields are skipped unless you choose "Every field" in Settings.</p></details>
+    <details><summary>Does it show fake or closed listings?</summary><p>Far fewer. Lookout reads each company's own careers board, so when a role is taken down it disappears within about 20 minutes, and copies of it on other sites stay out. Talent pools, general applications and roles taken down then posted again are hidden, with the reason. Nobody outside a company can be sure a listing is real, so these are labels you can see, never silent guesses.</p></details>
     <details><summary>Is it really free?</summary><p>Yes, and open source under the AGPL-3.0 license. Phone alerts use ntfy, which is also free. Nothing in Lookout costs money or needs a paid key.</p></details>
     <details><summary>Is reading LinkedIn allowed?</summary><p>Lookout reads LinkedIn's public job search, the pages anyone sees logged out, gently and without an account. Automated access is still against LinkedIn's terms of use, so that source is your call: clear the box in Settings and it is off.</p></details>
     <details><summary>What does the browser extension need?</summary><p>Edge or Chrome. It comes in the download's <code>extension</code> folder: turn on Developer mode on the extensions page, choose Load unpacked, then paste the pairing key from Lookout's Settings. It reads a page only when you click its button.</p></details>

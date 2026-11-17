@@ -78,12 +78,13 @@ function simplifyAdapter(url, label, days = 30) {
   return async () => {
     const { data, changed } = await getJson(url, { timeout: 60000 });
     if (!changed) return [];
-    return data.filter(r => r.active !== false && r.is_visible !== false && r.url && recent(toIso(r.date_posted), days)).map(r => ({
+    const closed = data.filter(r => r.url && r.active === false).map(r => r.url);
+    return Object.assign(data.filter(r => r.active !== false && r.is_visible !== false && r.url && recent(toIso(r.date_posted), days)).map(r => ({
       title: r.title, company: r.company_name, url: r.url, companyUrl: r.company_url && !/simplify\.jobs/.test(r.company_url) ? r.company_url : '',
       locations: r.locations || [], typeHint: label === 'intern' ? 'Internship' : 'New grad full-time', level: label === 'intern' ? 'Intern' : 'Entry',
       description: [r.category && `Category: ${r.category}`, r.terms?.length && `Terms: ${r.terms.join(', ')}`, r.sponsorship && `Sponsorship: ${r.sponsorship}`, r.degrees?.length && `Degrees: ${r.degrees.join(', ')}`].filter(Boolean).join('\n'),
       postedAt: toIso(r.date_posted), precision: 'minute', sourceJobId: `${label}:${r.id}`,
-    }));
+    })), { closed });
   };
 }
 
@@ -93,7 +94,8 @@ export function genericListAdapter(url, id) {
     const { data, changed } = await getJson(url, { timeout: 60000 });
     if (!changed) return [];
     const rows = Array.isArray(data) ? data : data.listings || data.jobs || [];
-    return rows.filter(r => r && r.url && r.title && (r.company_name || r.company) && r.active !== false && r.is_visible !== false && r.status !== 'closed').map(r => {
+    const closed = rows.filter(r => r?.url && (r.active === false || r.status === 'closed' || r.closed_at)).map(r => r.url);
+    return Object.assign(rows.filter(r => r && r.url && r.title && (r.company_name || r.company) && r.active !== false && r.is_visible !== false && r.status !== 'closed').map(r => {
       const posted = r.date_posted || r.date_found || r.first_seen || r.posted;
       const iso = toIso(typeof posted === 'string' && /^\d+$/.test(posted) ? Number(posted) : posted);
       const sponsorship = r.sponsorship || (r.citizenship_required ? 'U.S. Citizenship is Required' : r.no_sponsorship === true ? 'Does Not Offer Sponsorship' : '');
@@ -102,7 +104,7 @@ export function genericListAdapter(url, id) {
         salary: typeof r.pay === 'string' ? r.pay : r.pay?.min ? `$${r.pay.min}–${r.pay.max || r.pay.min} ${r.pay.period || ''}`.trim() : '',
         description: [category && `Category: ${category}`, r.terms?.length && `Terms: ${r.terms.join(', ')}`, sponsorship && `Sponsorship: ${sponsorship}`, r.degrees?.length && `Degrees: ${r.degrees.join(', ')}`, r.advanced_degree && 'Degrees: Master\'s, PhD'].filter(Boolean).join('\n'),
         postedAt: iso, precision: typeof posted === 'number' || /T\d/.test(String(posted)) ? 'minute' : 'date', sourceJobId: `${id}:${r.id || r.url}` };
-    }).filter(p => p.postedAt && recent(p.postedAt, 30)); // undated rows from a community list can't be trusted as fresh
+    }).filter(p => p.postedAt && recent(p.postedAt, 30)), { closed }); // undated rows from a community list can't be trusted as fresh
   };
 }
 

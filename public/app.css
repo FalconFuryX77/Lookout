@@ -761,3 +761,42 @@ dialog::backdrop{backdrop-filter:blur(3px);animation:fade .16s}
   #sigTable td:nth-child(1){grid-column:1/-1} #sigTable td:nth-child(3),#sigTable td:nth-child(5){text-align:right}
   .tbl .co small{max-width:62vw}
 }
+
+/* doubtful listings */
+.pill.doubt{color:var(--warn,#f5a524);background:var(--warn-dim,rgba(245,165,36,.11))}
+.doubt-note{display:flex;align-items:center;gap:10px;margin:14px 12px 24px;padding:12px 14px;border-radius:12px;background:var(--raised);color:var(--text2);font-size:.86em}
+.doubt-note svg{width:16px;height:16px;flex-shrink:0;color:var(--text3)} .doubt-note .link{margin-left:auto;white-space:nowrap}
+.doubtcard,.closedcard{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:14px;margin-bottom:14px;background:var(--warn-dim,rgba(245,165,36,.11));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warn,#f5a524) 28%,transparent)}
+.doubtcard svg,.closedcard svg{width:18px;height:18px;flex-shrink:0;margin-top:2px;color:var(--warn,#f5a524)}
+.doubtcard div,.closedcard div{display:grid;gap:3px} .doubtcard b,.closedcard b{font-weight:600} .doubtcard span,.closedcard span{color:var(--text2);font-size:.92em}
+.closedcard{background:var(--raised);box-shadow:inset 0 0 0 1px var(--line2)} .closedcard svg{color:var(--text3)}
+.tag.closed{background:var(--raised);color:var(--text3);box-shadow:inset 0 0 0 1px var(--line2)}
+
+/* niches */
+.niches{display:grid;grid-template-columns:1fr 1fr;gap:28px;padding:18px 24px 6px}
+.niche-col h4{margin:0 0 10px;font:500 11px var(--mono,ui-monospace);letter-spacing:.07em;text-transform:uppercase;color:var(--text3)}
+.niche-list{display:flex;flex-wrap:wrap;gap:6px}
+.niche{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:99px;border:1px solid var(--line2);background:transparent;color:var(--text2);font:inherit;font-size:12.5px;cursor:pointer}
+.niche:hover{border-color:var(--text3);color:var(--text)}
+.niche b{font:500 11px var(--mono,ui-monospace);color:var(--text3)} .niche em{font-style:normal;font-size:11px;color:var(--live)}
+@media (max-width:760px){.niches{grid-template-columns:1fr;padding:14px 16px 4px}}
+
+/* wellfound */
+.wf{margin-top:14px;padding:14px 16px;border-radius:14px;background:var(--raised)}
+.wf-h{display:flex;align-items:center;gap:8px} .wf-h svg{width:16px;height:16px;color:var(--text3)} .wf-h b{font-weight:600}
+.wf p{margin:6px 0 10px;color:var(--text2);font-size:.92em}
+.wf-acts{display:flex;flex-wrap:wrap;gap:8px} .wf-acts svg{width:13px;height:13px}
+.tag.ok{background:var(--good-dim);color:var(--good)}
+
+/* updates */
+.upd-new{display:flex;align-items:center;gap:14px;padding:14px 16px;margin:0 0 14px;border-radius:14px;background:var(--live-dim)}
+.upd-new div{display:grid;gap:2px;flex:1} .upd-new b{font-weight:600} .upd-new span{color:var(--text2);font-size:.9em}
+.eng-upd{display:block;margin-top:6px;font-size:11.5px;color:var(--live);text-decoration:none} .eng-upd:hover{text-decoration:underline}
+
+/* one score colour: the ring's length says how good the match is, not its colour */
+.r-meta{display:inline-flex;align-items:center;gap:8px}
+.r-fit,.r-fit.hi{color:var(--text2)} .r-fit .ring-fg{stroke:var(--live)}
+.matchcard,.matchcard.hi{background:none;border-color:var(--line2)} .mc-ring,.matchcard.hi .mc-ring,.matchcard.mid .mc-ring{color:var(--live)}
+/* hover buttons take the place of the time, so the score stays in view */
+.r-acts{top:8px;transform:none}
+.row:hover .r-right .t-time{visibility:hidden}

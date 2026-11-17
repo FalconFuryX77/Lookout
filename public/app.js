@@ -164,7 +164,14 @@ function model() {
 }
 function filtered() {
   const out = [...ev().matched];
-  if (S.sort === 'best') { const p = profile(); const now = Date.now(); const m = model(); const tr = S.meta?.tracking || {}; const done = id => { const st = tr[id]?.status; return st && st !== 'saved' ? 1000 : 0; }; const sc = new Map(out.map(j => [j.id, score(j, p, now) + learnedBoost(m, j, p) * 20 - done(j.id)])); out.sort((a, b) => sc.get(b.id) - sc.get(a.id)); }
+  if (S.sort === 'best') {
+    // Ordered by the match score each row shows. Freshness, funding and what you tend to go for only break ties,
+    // and roles you have already applied to (or closed) go to the bottom.
+    const p = profile(); const now = Date.now(); const m = model(); const tr = S.meta?.tracking || {};
+    const done = id => { const st = tr[id]?.status; return st && st !== 'saved' ? 1 : 0; };
+    const key = new Map(out.map(j => [j.id, [done(j.id), fit(j, p).pct, score(j, p, now) + learnedBoost(m, j, p) * 20]]));
+    out.sort((a, b) => { const x = key.get(a.id), y = key.get(b.id); return x[0] - y[0] || y[1] - x[1] || y[2] - x[2]; });
+  }
   else out.sort((a, b) => effectiveTime(b) - effectiveTime(a));
   return out;
 }
@@ -208,6 +215,7 @@ function chipList(f = S.filters) {
   if (f.multiSource) add('multiSource', 'Seen on', '2+ sources', { multiSource: false });
   if (f.hasContact) add('hasContact', 'Contact', 'Has email', { hasContact: false });
   if (f.hideAgencies) add('hideAgencies', 'Agencies', 'Hidden', { hideAgencies: false }, { neg: true, short: 'No agencies' });
+  if (f.showDoubtful) add('showDoubtful', 'Doubtful listings', 'Shown', { showDoubtful: false }, { short: 'Incl. doubtful' });
   if (f.hideTracked) add('hideTracked', 'Tracked', 'Hidden', { hideTracked: false }, { short: 'Untracked only' });
   for (const [k, nk] of Object.entries(NOT_KEY)) {
     if (k === 'fields' || !f[nk]?.length) continue;
@@ -262,7 +270,8 @@ function pillsFor(j) {
   const ps = payStr(j); if (ps) p.pay = `<span class="pill">${esc(ps)}</span>`;
   const y = years(j); if (y && !(j.type === 'Internship' && j.yearsMin === 0)) p.yrs = `<span class="pill">${esc(y)}</span>`;
   if (j.workMode === 'Remote' || j.workMode === 'Hybrid') p.mode = `<span class="pill">${esc(j.workMode)}</span>`;
-  const order = ['fund', 'visa', 'pay', 'yrs', 'mode'];
+  if (j.doubt) p.doubt = `<span class="pill doubt" title="${esc(j.doubt.reasons.join(' '))}">May not be a real opening</span>`;
+  const order = ['doubt', 'fund', 'visa', 'pay', 'yrs', 'mode'];
   return order.map(k => p[k]).filter(Boolean).join('');
 }
 // A small progress ring: how much of what a role asks for you have.
@@ -287,7 +296,7 @@ function rowHtml(j, { arrive = false } = {}) {
       <div class="r-sub"><span class="r-co">${esc(j.company)}</span>${loc ? `<span class="r-loc">${esc(loc)}</span>` : ''}</div>
       ${pills ? `<div class="r-pills">${pills}</div>` : ''}
     </div>
-    <div class="r-right"><span class="t-time">${when(j)}</span>${tr?.status ? `<span class="r-flag st-${esc(tr.status)}">${esc(statusLabel(tr.status))}</span>` : ft && !ft.thin && ft.pct >= 40 ? `<span class="r-fit ${ft.pct >= 75 ? 'hi' : ''}" title="${esc(`${ft.word}: you have ${ft.have.length} of ${ft.n} skills`)}">${ring(ft.pct, 22, 2.5)}<b>${ft.pct}</b></span>` : ''}</div>
+    <div class="r-right"><span class="t-time">${when(j)}</span><span class="r-meta">${tr?.status ? `<span class="r-flag st-${esc(tr.status)}">${esc(statusLabel(tr.status))}</span>` : ''}${ft ? `<span class="r-fit" title="${esc(`${ft.pct}% · ${ft.word}: you have ${ft.have.length} of the ${ft.n} skills it names`)}">${ring(ft.pct, 22, 2.5)}<b>${ft.pct}</b></span>` : ''}</span></div>
     <div class="r-acts"><button data-act="save" class="${saved ? 'on' : ''}" title="${saved ? 'Saved. Click to remove' : 'Save (S)'}" aria-label="Save">${ic('bookmark')}</button><button data-act="hide" title="Hide (X)" aria-label="Hide">${ic('eyeoff')}</button></div></div>`;
 }
 // Newest first is grouped by how fresh a role is, so "what came in while I was away" reads at a glance.
@@ -306,14 +315,22 @@ function renderList(arriveIds = new Set()) {
       html += rowHtml(j, { arrive: arriveIds.has(j.id) });
     }
     if (current.length > S.limit) html += `<button class="btn more" id="more">Show ${fmt(Math.min(300, current.length - S.limit))} more</button>`;
+    html += doubtNote();
   } else html = `<div class="empty"><div class="empty-in"><img src="/logo.svg" width="44" alt=""><h3>Nothing matches</h3>${chipList().length ? '<p>Loosen a filter, or clear them all.</p><button class="btn" id="emptyClear">Clear filters</button>' : '<p>New roles show up here as they’re found.</p>'}</div></div>`;
   $('#list').innerHTML = html;
   hydrateIcons($('#list'));
   $('#more')?.addEventListener('click', () => { S.limit += 300; renderList(); });
+  $('#showDoubt')?.addEventListener('click', () => setFilters({ showDoubtful: true }));
   $('#emptyClear')?.addEventListener('click', () => { S.activeView = null; $('#q').value = ''; setFilters({ ...EMPTY_FILTERS }); });
   $('#nJobs').textContent = fmt(S.jobs.length);
   S.pending = []; updatePill();
   if (!S.sel) renderBriefing();
+}
+// Listings kept out of sight because they may not be real openings, said once at the end of the list.
+function doubtNote() {
+  if (S.filters.showDoubtful) return '';
+  const n = ev().nearMiss.get('doubt')?.length || 0; if (!n) return '';
+  return `<div class="doubt-note">${ic('eyeoff')}<span>${fmt(n)} listing${n > 1 ? 's' : ''} hidden because ${n > 1 ? 'they' : 'it'} may not be a real opening: talent pools, general applications, or roles the employer took down and posted again.</span><button class="link" id="showDoubt">Show them</button></div>`;
 }
 const list = $('#list');
 list.addEventListener('click', e => {
@@ -405,7 +422,7 @@ function renderBriefing() {
       <button data-bq="best" ${hasSkills ? '' : 'disabled'}><b>${hasSkills ? fmt(b.strong) : '–'}</b><span>Strong matches this week</span></button>
     </div>
     ${hasSkills && b.best.length ? `<section class="brief-sec"><h4>Best matches for you this week<button class="link small" data-bq="best">See all</button></h4>
-      <div class="mini-list">${b.best.map(([j, ft]) => `<button class="mini" data-open="${j.id}">${logo(j.company, j.domain)}<span class="mini-main"><b>${esc(j.title)}</b><span>${esc(j.company)} · ${when(j)}</span></span><span class="r-fit ${ft.pct >= 75 ? 'hi' : ''}" title="${esc(`You have ${ft.have.length} of ${ft.n} skills`)}">${ring(ft.pct, 26, 3)}<b>${ft.pct}</b></span></button>`).join('')}</div></section>`
+      <div class="mini-list">${b.best.map(([j, ft]) => `<button class="mini" data-open="${j.id}">${logo(j.company, j.domain)}<span class="mini-main"><b>${esc(j.title)}</b><span>${esc(j.company)} · ${when(j)}</span></span><span class="r-fit" title="${esc(`You have ${ft.have.length} of ${ft.n} skills`)}">${ring(ft.pct, 26, 3)}<b>${ft.pct}</b></span></button>`).join('')}</div></section>`
       : !hasSkills ? `<section class="brief-sec"><div class="nudge"><div><b>See which roles fit you</b><span>Import your résumé and every role shows how many of its skills you have.</span></div><button class="btn primary" data-go="resume">Import résumé</button></div></section>` : ''}
     ${b.stale ? `<section class="brief-sec"><div class="nudge warn"><div><b>${b.stale} application${b.stale > 1 ? 's have' : ' has'} been quiet for a week</b><span>A short follow-up often gets a reply.</span></div><a class="btn" href="#pipeline">Open pipeline</a></div></section>` : ''}
     ${left.length && !hideSetup ? `<section class="brief-sec"><h4>Finish setting up<span class="muted">${steps.length - left.length} of ${steps.length} done</span><button class="link small" id="setupHide">Hide</button></h4>
@@ -500,6 +517,8 @@ function renderDetail(j) {
     </div>
   </div>
   <div class="d-body">
+    ${j.closedAt ? `<div class="closedcard">${ic('x')}<div><b>${j.closedBy === 'list' ? 'Marked closed' : 'Taken down by the employer'}</b><span>${j.closedBy === 'list' ? 'The job list it came from marked it closed' : 'It is no longer on the company’s own careers site'} (noticed ${esc(agoLong(Date.parse(j.closedAt)))}). It stays in your pipeline; Apply may no longer work.</span></div></div>` : ''}
+    ${j.doubt ? `<div class="doubtcard ${j.doubt.level}">${ic('eyeoff')}<div><b>May not be a real opening</b>${j.doubt.reasons.map(r => `<span>${esc(r)}</span>`).join('')}</div></div>` : ''}
     ${(() => { const ft = fitOf(j); if (!ft) return '';
       const warn = overReachNote(j, p, ft);
       return `<div class="matchcard ${ft.thin ? 'low' : ft.pct >= 75 ? 'hi' : ft.pct >= 50 ? 'mid' : 'low'}"><span class="mc-ring">${ring(ft.pct, 54, 5)}<b>${ft.pct}</b></span>
@@ -548,12 +567,30 @@ async function loadContacts(j, refresh = false) {
     for (const e of c.emails) out.push(`<div class="contact"><div class="c-main"><div class="em">${esc(e.email)}</div><div class="via">${esc(e.role)} · <a href="${esc(e.url)}" target="_blank" rel="noreferrer">${esc(e.source)}</a></div></div>${e.confidence === 'published' ? '' : '<span class="tag">Other domain</span>'}${copyBtn(e.email)}</div>`);
     if (c.founders?.length) out.push('<div class="sub-h">Founders</div>' + c.founders.map(f => `<div class="person">${logo(f.name, '')}<div><div>${esc(f.name)} <small>${esc(f.role || '')}</small></div><div>${f.linkedin ? `<a href="${esc(f.linkedin)}" target="_blank" rel="noreferrer">LinkedIn</a>` : ''}${f.x ? `<a href="${esc(f.x)}" target="_blank" rel="noreferrer">X</a>` : ''}</div></div></div>`).join(''));
     for (const g of c.guesses || []) out.push(`<div class="contact guess"><div class="c-main"><div class="em">${esc(g.email)}</div><div class="via">${esc(g.name)}${g.alt?.length ? ` · or ${g.alt.map(esc).join(', ')}` : ''}</div></div><span class="tag warn" title="A common address pattern, not verified">Guess</span>${copyBtn(g.email)}</div>`);
-    const soc = Object.entries(c.socials || {}).map(([k, u]) => `<a class="link" href="${esc(u)}" target="_blank" rel="noreferrer">${esc({ linkedin: 'LinkedIn', x: 'X', github: 'GitHub', instagram: 'Instagram' }[k] || k)}</a>`).join(' · ');
-    $('#contacts').innerHTML = (out.join('') || '<p class="muted" style="margin:0">No published email found.</p>') + (soc ? `<p class="fine">${soc}</p>` : '');
+    const soc = Object.entries(c.socials || {}).filter(([k]) => k !== 'wellfound').map(([k, u]) => `<a class="link" href="${esc(u)}" target="_blank" rel="noreferrer">${esc({ linkedin: 'LinkedIn', x: 'X', github: 'GitHub', instagram: 'Instagram' }[k] || k)}</a>`).join(' · ');
+    $('#contacts').innerHTML = (out.join('') || '<p class="muted" style="margin:0">No published email found.</p>') + (soc ? `<p class="fine">${soc}</p>` : '') + wellfoundHtml(j, c);
+    $('#wfCopy')?.addEventListener('click', () => { navigator.clipboard?.writeText(wellfoundNote(j, c)); toast('Note copied. Paste it into Wellfound’s application note.', { ms: 4000 }); });
     hydrateIcons($('#contacts'));
     $$('[data-copy]', $('#contacts')).forEach(b => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copy); toast(`Copied ${b.dataset.copy}`, { ms: 2500 }); });
     return c;
   } catch (e) { if (S.sel === j.id) $('#contacts').innerHTML = `<span class="muted small">Couldn’t check: ${esc(e.message)}</span>`; return null; }
+}
+// Wellfound: Lookout never visits it (its terms forbid automated access); it hands over the company's page
+// when a link to it was found, or a web search for it, and a short note to paste into the application.
+function wellfoundHtml(j, c) {
+  const page = c?.socials?.wellfound;
+  const search = `https://duckduckgo.com/?q=${encodeURIComponent(`site:wellfound.com/company "${j.company}"`)}`;
+  const founders = (c?.founders || []).map(f => f.name).filter(Boolean).slice(0, 3);
+  return `<div class="wf"><div class="wf-h">${ic('mail')}<b>Wellfound</b>${page ? '<span class="tag ok">Page found</span>' : ''}</div>
+    <p>${page ? `${esc(j.company)} is on Wellfound.` : `Startups often hire through Wellfound, where the founders read applications themselves.`} Apply there with a short note; at a startup this size it usually reaches ${founders.length ? esc(founders.join(' or ')) : 'a founder or the hiring lead'}.${founders.length ? '' : ' Once they reply, you can message them directly.'}</p>
+    <div class="wf-acts"><a class="btn sm" href="${esc(page || search)}" target="_blank" rel="noreferrer">${page ? `Open ${esc(j.company)} on Wellfound` : 'Look for it on Wellfound'} ${ic('external')}</a><button type="button" class="btn sm ghost" id="wfCopy">${ic('copy')}Copy a note</button></div></div>`;
+}
+function wellfoundNote(j, c) {
+  const p = profile(); const overlap = fit(j, p).have.slice(0, 3); const first = c?.founders?.[0]?.name?.split(' ')[0];
+  return [`Hi${first ? ` ${first}` : ''}, I'm ${p.name || '[your name]'}${p.headline ? `, ${p.headline}` : ''}.`,
+    `I'd love to work on ${j.title} at ${j.company}.`,
+    p.pitch || '', overlap.length ? `I've built with ${overlap.join(', ')}, which this role asks for.` : '',
+    p.link ? `My work: ${p.link}` : '', 'Happy to talk whenever suits you.'].filter(Boolean).join(' ');
 }
 function draft(j, c) {
   const p = profile();
@@ -702,10 +739,11 @@ function renderSheet() {
     const srcs = (S.meta?.sources || []).filter(s => s.kind === 'jobs');
     parts.push(sec('src', 'Source', triSum('sources') || (f.multiSource ? '2+ sources' : ''), `<label class="mini-check" style="margin:0 0 8px"><input type="checkbox" data-bool="multiSource" ${f.multiSource ? 'checked' : ''}>Seen on 2+ sources</label><div class="opts">${srcs.map(s => opt('sources', s.id, s.name, c.get(s.id) || 0, f.sources.includes(s.id))).join('')}</div>`)); }
   // keywords + misc
-  parts.push(sec('kw', 'More', [(f.includeQ || f.excludeQ) && 'keywords', f.hideAgencies && 'no agencies', f.hasContact && 'has email', f.hideTracked && 'hide tracked'].filter(Boolean).join(', '), `<label class="kw-label">Only roles mentioning<textarea id="inQ" rows="2" placeholder="python, react">${esc(f.includeQ)}</textarea></label>
+  parts.push(sec('kw', 'More', [(f.includeQ || f.excludeQ) && 'keywords', f.hideAgencies && 'no agencies', f.showDoubtful && 'incl. doubtful', f.hasContact && 'has email', f.hideTracked && 'hide tracked'].filter(Boolean).join(', '), `<label class="kw-label">Only roles mentioning<textarea id="inQ" rows="2" placeholder="python, react">${esc(f.includeQ)}</textarea></label>
     <label class="kw-label">Hide roles mentioning<textarea id="exQ" rows="2" placeholder="senior, staff, clearance">${esc(f.excludeQ)}</textarea></label>
     <p class="tri-help" style="margin:-6px 0 12px 2px">Separate words with commas. Both read the whole posting, and a word also finds its plurals (“citizen” finds citizens, citizenship). Words can’t tell “required” from “not required”: for citizenship or clearance, exclude <b>Citizens / clearance only</b> under Visa instead.</p>
     <label class="mini-check"><input type="checkbox" data-bool="hideAgencies" ${f.hideAgencies ? 'checked' : ''}>Hide recruiters and re-posted roles</label>
+    <label class="mini-check"><input type="checkbox" data-bool="showDoubtful" ${f.showDoubtful ? 'checked' : ''}>Show listings that may not be a real opening${(() => { const k = S.jobs.filter(j => j.doubt).length; return k ? ` <span class="muted">(${fmt(k)})</span>` : ''; })()}</label>
     <label class="mini-check"><input type="checkbox" data-bool="hasContact" ${f.hasContact ? 'checked' : ''}>Has a contact email</label>
     <label class="mini-check"><input type="checkbox" data-bool="hideTracked" ${f.hideTracked ? 'checked' : ''}>Not in my pipeline yet</label>`));
 
@@ -950,7 +988,17 @@ document.addEventListener('keydown', e => {
 });
 
 // ───────────────────────────────────────────── signals
+// What computing teams are hiring for: learned from role titles, so new niches appear on their own.
+async function renderNiches() {
+  const el = $('#niches'); if (!el) return;
+  let r; try { r = await api('/api/niches'); } catch { return; }
+  const chip = x => `<button class="niche" data-q="${esc(x.phrase)}" title="${esc(`${x.companies} companies in the last ${r.windowDays} days${x.before !== undefined ? `, about ${x.before} in an earlier ${r.windowDays} days` : ''}`)}"><span>${esc(x.phrase)}</span><b>${fmt(x.companies)}</b>${x.new ? '<em>new</em>' : x.growth ? `<em>×${x.growth}</em>` : ''}</button>`;
+  el.innerHTML = `<div class="niche-col"><h4>Rising</h4>${r.rising.length ? `<div class="niche-list">${r.rising.map(chip).join('')}</div>` : `<p class="fine">Rising niches show up once Lookout has watched for ${r.needDays} days (${r.historyDays} so far). It learns them from role titles, so new kinds of work appear here on their own.</p>`}</div>
+    <div class="niche-col"><h4>Most hired for, last ${r.windowDays} days</h4><div class="niche-list">${r.biggest.map(chip).join('')}</div></div>`;
+  $$('[data-q]', el).forEach(b => b.onclick = () => { S.activeView = null; $('#q').value = b.dataset.q; location.hash = '#jobs'; setFilters({ ...S.filters, q: `"${b.dataset.q}"` }); });
+}
 async function renderSignals() {
+  renderNiches();
   const { companies } = await api('/api/signals');
   const f = S.sigSeg;
   const rows = companies.filter(c => f === 'all' || (f === 'news' && c.funding.at) || (f === 'yc' && c.yc) || (f === 'open' && c.openJobs)).slice(0, 500);
@@ -987,7 +1035,7 @@ function renderPipeline() {
     return `<article class="pcard ${stale ? 'stale' : ''}" draggable="true" data-id="${id}" tabindex="0">
       <div class="pc-top">${logo(j.company, j.domain)}<div class="pc-main"><b>${esc(j.title)}</b><span>${esc(j.company)}${locShort(j) ? ` · ${esc(locShort(j))}` : ''}</span></div></div>
       ${t.note ? `<p class="pc-note">${esc(t.note.slice(0, 140))}</p>` : ''}
-      <div class="pc-foot"><span>${esc(statusLabel(t.status))} ${esc(agoLong(Date.parse(t.at)))}</span>${stale ? '<span class="tag warn">Follow up?</span>' : ''}</div></article>`;
+      <div class="pc-foot"><span>${esc(statusLabel(t.status))} ${esc(agoLong(Date.parse(t.at)))}</span>${j.closedAt ? '<span class="tag closed" title="No longer on the company’s own careers site">Closed</span>' : stale ? '<span class="tag warn">Follow up?</span>' : ''}</div></article>`;
   };
   $('#kanban').innerHTML = shown.length || hidden.length ? STATUSES.map(([st, label]) => {
     const items = shown.filter(x => x.t.status === st).sort((a, b) => Date.parse(b.t.at) - Date.parse(a.t.at));
@@ -1059,7 +1107,18 @@ $('#watchForm').onsubmit = async e => {
 };
 
 // ───────────────────────────────────────────── settings
+function renderUpdates() {
+  const u = S.meta.updates; if (!u) return;
+  $('#updVersion').textContent = `Lookout ${u.version}`;
+  $('#updAuto').checked = u.auto;
+  $('#updChecked').textContent = u.checkedAt ? `${agoLong(Date.parse(u.checkedAt))}${u.listAt ? ` · board list updated ${agoLong(Date.parse(u.listAt))}${u.listAdded ? `, ${fmt(u.listAdded)} new boards` : ''}` : ''}${u.error ? ` · ${u.error}` : ''}` : 'Not yet (the first check runs a minute after starting)';
+  $('#updRelease').innerHTML = u.release ? `<div class="upd-new"><div><b>${esc(u.release.name || `Lookout ${u.release.version}`)} is out</b><span>You have ${esc(u.version)}. Download it, close Lookout, and unzip it over this folder: your data stays.</span></div><a class="btn sm primary" href="${esc(u.release.url)}" target="_blank" rel="noreferrer">Download</a></div>` : u.latest ? '<p class="fine" style="margin-top:0">You have the latest version.</p>' : '';
+}
+$('#updAuto').onchange = async e => { await api('/api/settings', { method: 'POST', body: JSON.stringify({ autoUpdateList: e.target.checked }) }); await loadMeta(); renderUpdates(); };
+$('#updCheck').onclick = async () => { const b = $('#updCheck'); b.disabled = true; b.textContent = 'Checking…'; try { S.meta.updates = await api('/api/updates/check', { method: 'POST' }); renderUpdates(); renderEngine(); } finally { b.disabled = false; b.textContent = 'Check now'; } };
 function renderSettings() {
+  renderUpdates();
+  api('/api/storage').then(d => { $('#dataFile').textContent = d.file; $('#dataSummary').textContent = `${fmt(d.roles)} roles · ${fmt(d.boards)} boards · ${d.kind === 'sqlite' ? 'database' : 'JSON file'}`; }).catch(() => { });
   const s = S.meta.settings; const f = $('#pushForm');
   f.ntfyTopic.value = s.ntfyTopic || ''; f.ntfyServer.value = s.ntfyServer || 'https://ntfy.sh'; f.ntfyToken.value = s.hasToken ? '••••' : ''; f.quietHours.value = s.quietHours || ''; f.desktopNotify.checked = !!s.desktopNotify;
   if (document.activeElement !== $('#liForm').searches) $('#liForm').searches.value = (s.linkedinSearches || []).map(x => [x.keywords, x.location || 'Worldwide', x.remote ? 'remote' : ''].filter(Boolean).join(' | ')).join('\n');
@@ -1364,6 +1423,8 @@ function renderSourcesCard() {
   const s = S.meta.settings; const info = S.meta.sourceInfo || {};
   $('#discoverToggle').checked = s.discover !== false;
   $$('#paceSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === (s.pace || 'auto')));
+  $$('#scopeSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === (s.scope || 'computing')));
+  $('#scopeNote').textContent = (s.scope || 'computing') === 'all' ? 'Every role from every board is kept: nursing, sales, civil engineering and so on. More to scan and store.' : 'Software, AI, data, security, infrastructure, robotics, embedded, chips, quant and new niches as they appear. Roles in other fields are skipped; ones in your pipeline stay.';
   $('#paceNote').textContent = PACE_NOTE[s.pace || 'auto'];
   $('#srcSummary').textContent = `${fmt(info.boards || 0)} boards · ${fmt(info.lists || 0)} lists`;
   const st = info.starter;
@@ -1373,8 +1434,15 @@ function renderSourcesCard() {
 const srcSay = t => { $('#srcMsg').textContent = t; };
 const added = r => `${r.name === 'starter list' ? 'Starter list' : `“${r.name}”`}: added ${fmt(r.added)} board${r.added === 1 ? '' : 's'}${r.lists ? ` and ${r.lists} list${r.lists === 1 ? '' : 's'}` : ''}${r.had ? `, ${fmt(r.had)} you already had` : ''}${r.skipped ? `, ${r.skipped} not understood` : ''}.`;
 $('#discoverToggle').onchange = async e => { await api('/api/settings', { method: 'POST', body: JSON.stringify({ discover: e.target.checked }) }); await loadMeta(); renderSourcesCard(); srcSay(e.target.checked ? 'Lookout will add new boards and lists as it finds them.' : 'Lookout will only use the boards and lists you have now, plus any you add.'); };
+$$('#scopeSeg button').forEach(b => b.onclick = async () => {
+  if (b.classList.contains('on')) return;
+  await api('/api/settings', { method: 'POST', body: JSON.stringify({ scope: b.dataset.v }) }); await loadMeta(); renderSourcesCard();
+  toast(b.dataset.v === 'all' ? 'Keeping every field. Boards are read again in full over the next few minutes.' : 'Keeping computer-science roles only.');
+  resync();
+});
 $$('#paceSeg button').forEach(b => b.onclick = async () => { await api('/api/settings', { method: 'POST', body: JSON.stringify({ pace: b.dataset.v }) }); await loadMeta(); renderSourcesCard(); });
 $('#starterAdd').onclick = async () => { srcSay('Adding…'); try { const r = await api('/api/sources/starter', { method: 'POST', body: '{}' }); await loadMeta(); renderSourcesCard(); srcSay(added(r)); } catch (e) { srcSay(e.message); } };
+$('#dataShare').onclick = () => { $('#srcCard').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
 $('#importBtn').onclick = () => $('#importFile').click();
 $('#importFile').onchange = async e => {
   const file = e.target.files[0]; e.target.value = ''; if (!file) return;
@@ -1432,6 +1500,7 @@ function renderEngine() {
   const engState = !S.connected ? 'Offline' : busy ? 'Scanning' : 'Live'; $('#engState').textContent = engState;
   if (!S.sel && S.briefState && S.briefState !== engState && $('#detail .brief .eyebrow')) { const eb = $('#detail .brief .eyebrow'); eb.firstElementChild?.classList.toggle('on', !!S.connected); $('#detail .brief .radar')?.classList.toggle('on', !!S.connected); for (const nd of eb.childNodes) if (nd.nodeType === 3 && nd.nodeValue.trim()) { nd.nodeValue = nd.nodeValue.replace(S.briefState, engState); break; } S.briefState = engState; }
   $('#engMeta').textContent = boards ? `${fmt(boards)} boards` : '';
+  { const u = S.meta?.updates?.release; let el = $('#engUpd'); if (u && !el) { el = document.createElement('a'); el.id = 'engUpd'; el.className = 'eng-upd'; el.href = '#settings'; $('#engine').after(el); } if (el) { if (u) el.textContent = `Lookout ${u.version} is out`; else el.remove(); } }
   $('#engine').title = `${Math.max(0, src.length - 2)} feeds and ${fmt(boards)} company boards. Last check ${last ? agoLong(last) : 'pending'}.`;
 }
 setInterval(renderEngine, 5000);
@@ -1462,7 +1531,18 @@ function connect() {
   es.onerror = () => { S.connected = false; wasDown = true; renderEngine(); };
   es.addEventListener('ping', () => { lastBeat = Date.now(); sawPing = true; });
   es.addEventListener('jobs', e => {
-    const { added } = JSON.parse(e.data); const ids = new Set(S.jobs.map(j => j.id));
+    const { added = [], removed = [], updated = [], resync: again } = JSON.parse(e.data);
+    if (again) { resync(); return; }
+    if (removed.length || updated.length) { // the employer took roles down (or put one back)
+      const gone = new Set(removed); const upd = new Map(updated.map(j => [j.id, j]));
+      S.jobs = S.jobs.filter(j => !gone.has(j.id)).map(j => upd.has(j.id) ? { ...j, ...upd.get(j.id) } : j);
+      S.pending = S.pending.filter(id => !gone.has(id)); evCache = null;
+      if (S.sel && gone.has(S.sel) && S.view === 'jobs') { S.sel = null; detailEmpty(); }
+      else if (S.sel && upd.has(S.sel) && S.detailJob) select(S.sel);
+      if (S.view === 'jobs') renderList(); else if (S.view === 'pipeline') renderPipeline();
+      renderQuick(); renderViews();
+    }
+    const ids = new Set(S.jobs.map(j => j.id));
     const fresh = added.filter(j => !ids.has(j.id)); if (!fresh.length) return;
     S.jobs = [...fresh, ...S.jobs];
     if (mentionCache.size) syncMentions(fresh.map(j => j.id)).then(ok => { if (ok) { renderList(); deferred(); } });
@@ -1478,7 +1558,7 @@ function connect() {
       for (const a of items.slice(0, 3)) { const n = new Notification(`${a.company}: ${a.title}`, { body: `Matched ${a.sets.join(', ')}`, icon: '/logo.svg', tag: a.id }); n.onclick = () => { window.focus(); location.hash = '#jobs'; select(a.id); }; }
     toast(`${items.length} new match${items.length > 1 ? 'es' : ''}: ${items[0].company}, ${items[0].title}`, { live: true, ms: 6000 });
   });
-  es.addEventListener('status', e => { const st = JSON.parse(e.data); const s = S.meta?.sources.find(x => x.id === st.id); if (s) Object.assign(s, st); renderEngine(); });
+  es.addEventListener('status', async e => { const st = JSON.parse(e.data); if (st.id === 'updates') { await loadMeta(); renderEngine(); if (S.view === 'settings') renderUpdates(); return; } const s = S.meta?.sources.find(x => x.id === st.id); if (s) Object.assign(s, st); renderEngine(); });
   es.addEventListener('funding', () => { if (S.view === 'signals') renderSignals(); });
   es.addEventListener('profile', async () => { await loadMeta(); if (S.view === 'settings' && !P.dirty) renderProfile(); evCache = null; renderList(); }); // the extension added skills
   es.addEventListener('scan', async e => {

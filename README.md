@@ -25,6 +25,9 @@ A local, near-real-time job scanner that watches freshly funded startups, dedupl
 - [Who to contact](#who-to-contact)
 - [Memory and storage](#memory-and-storage)
 - [Deduplication and freshness](#deduplication-and-freshness)
+- [Listings that may not be real](#listings-that-may-not-be-real)
+- [Computer science first](#computer-science-first)
+- [Updates](#updates)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Project structure](#project-structure)
 - [Development](#development)
@@ -43,14 +46,17 @@ A local, near-real-time job scanner that watches freshly funded startups, dedupl
 - **Covers aggregators too.** It also reads HN "Who is hiring", HN YC job posts, Simplify/vanshb03 GitHub lists, InternScan, Startup.jobs, Remote OK, We Work Remotely, Himalayas, Jobicy, Arbeitnow and Remotive.
 - **Grows its own coverage, or uses yours.** It harvests new careers boards from every link it sees and finds new GitHub job lists on its own. You can turn that off, start from the starter list, and share your best boards with friends as a file.
 - **Shows each role once, with the most direct link.** Roles are deduplicated across all sources, short links are followed, and Apply opens the employer's own listing whenever one is known.
+- **Computer science first.** It keeps roles in computing and its applications (software, AI, data, security, infrastructure, robotics, embedded, chips, quant) and skips other fields, unless you choose every field. New niches are recognised by the skills a posting asks for, and the Signals page shows which niches are rising.
+- **Weeds out listings that aren't real openings.** When an employer takes a role down, it leaves Lookout within about 20 minutes, and copies of it on other sites stay out. Talent pools, general applications and roles taken down then posted again are hidden, with the reason, unless you ask to see them.
 - **Filters deeply.** Filter by field, 30+ role types, years of experience, visa sponsorship, work mode, location, pay, degree, internship term, funding stage, skills and more. Save any combination as a view.
 - **Alerts you.** Phone alerts (ntfy) fire the moment a role matching a saved view appears, and each view can alert a different phone.
 - **Matches you.** Import your résumé (read locally) and every role gets a score from 0 to 100 and shows which of its skills you have; roles that ask for more experience than you have are hidden.
 - **Briefs you.** Open it and one panel says how many roles are new in the last hour and today, which ones suit you best this week, and which applications have gone quiet.
 - **Checks other sites too.** A browser extension compares any job page with your profile and saves it to your pipeline.
-- **Helps you reach out.** It finds published contacts (job post, company site, GitHub org, YC founders) and drafts a personalised outreach email.
+- **Helps you reach out.** It finds published contacts (job post, company site, GitHub org, YC founders), drafts a personalised outreach email, and points you to the company on Wellfound with a short note ready to paste.
 - **Tracks your search.** Drag roles across a pipeline board (saved, applied, contacted, interviewing, closed), keep notes on each, and get a nudge when an application has had no reply for a week.
-- **Stays on your machine.** Everything is stored locally in one file.
+- **Stays current.** New company boards (rebuilt every month from Common Crawl) and words for new kinds of work arrive from GitHub once a day, and the app tells you when a new version is out.
+- **Stays on your machine.** Everything is stored locally in one database file you can back up with one click.
 
 ## Download
 
@@ -58,7 +64,7 @@ Get the latest Windows build from the [Releases page](https://github.com/FalconF
 
 ## Quick start
 
-**Requirements:** Windows 10/11, [Node.js 20+](https://nodejs.org), and the Microsoft Edge WebView2 runtime (preinstalled on Windows 11). There are no npm packages to install.
+**Requirements:** Windows 10/11 and the Microsoft Edge WebView2 runtime (preinstalled on Windows 11). From version 2.4 the Windows download carries its own Node.js in `runtime\`, so there is nothing else to install. Running from source (Option B, or on Mac and Linux) needs [Node.js 22.13 or newer](https://nodejs.org); Node.js 20 still works, but keeps your data in a JSON file instead of the database. There are no npm packages to install.
 
 ### Option A: Windows app (recommended)
 
@@ -144,7 +150,7 @@ The fastest signal is the company's own careers board: a role appears there befo
 
 - **Find new boards and lists on my own** turns all of the discovery above on or off. Off means Lookout keeps exactly the boards and lists you have, plus any you add.
 - **How often to check:** *Auto* (busy boards every 1–3 minutes, quiet ones hourly), *Saver* (every 30 minutes to 2 hours) or *Slow* (every 6 to 24 hours). Slower means fewer requests and less battery, but later alerts.
-- **Starter list:** about 2,000 careers boards and 8 community lists that were posting roles recently, offered as a one-click suggestion on a new install. It is rebuilt from public discoveries only with `node starter/make-starter.mjs`.
+- **Starter list:** about 6,000 careers boards with computer-science roles open and 8 community lists, rebuilt every month from Common Crawl and community lists, offered as a one-click suggestion on a new install. It is rebuilt from public discoveries only with `node starter/make-starter.mjs`.
 - **Share your list:** *Export* saves your boards and lists as a file, either everything or only the boards that produced roles matching your saved views or pipeline. The file holds no profile, pipeline or alert settings. *Import* adds a file someone sent you; *Remove all* clears everything first if you want to start from someone else's list alone.
 
 The file is plain JSON, easy to read and edit by hand:
@@ -165,7 +171,7 @@ The file is plain JSON, easy to read and edit by hand:
 
 - **Import your résumé** (PDF, Word .docx, or pasted text). It is read on your computer by the scanner itself; nothing is uploaded and no outside service is involved. Lookout pulls out your name, links, skills, education, experience and years of experience, saves them to the profile, and you can edit any of it afterwards. Scanned or image-only PDFs have no text to read; paste the text instead.
 - **Skills** are split into technical ones (languages, frameworks, tools, engineering disciplines) and general ones ("Sales", "Operations", "Communication"). Technical skills are shown first and drive the match; general ones are kept but shown quieter, in the profile, on each role and in the Skills filter.
-- **Matching.** Each role shows a score from 0 to 100 and "You have 7 of 12", with the skills you have and the ones you are missing. A long skill list does not need every item: the first six skills count in full and each one after that counts three quarters. 100 means you have everything it names, and every missing skill takes at least three points off. A posting that names fewer than three technical skills gets no score ("Names few skills"), because one skill out of one says little. Sorting by **Best match** ranks mostly by that score, then by how fresh the role is; it lowers roles that ask for more years than your profile has, and roles you have already applied to or closed drop to the bottom. **Filters → Skills → My skills** ticks every technical skill on your profile in one click.
+- **Matching.** Each role shows a score from 0 to 100 and "You have 7 of 12", with the skills you have and the ones you are missing. A long skill list does not need every item: the first six skills count in full and each one after that counts three quarters. 100 means you have everything it names, and every missing skill takes at least three points off. A posting that names only one or two technical skills is scored as if it named three ("Names few skills"): 2 of 2 reads 67, not 100, because it says less. Every row shows its score, in the same colour; the length of the ring is the score. Sorting by **Best match** orders roles by that score; freshness, funding and what you tend to go for only break ties, and roles you have already applied to or closed drop to the bottom. **Filters → Skills → My skills** ticks every technical skill on your profile in one click.
 - **Your links.** Separate boxes for GitHub, LinkedIn, your portfolio or personal site, and any other links (Kaggle, Hugging Face, LeetCode, Devpost, a blog). Importing a résumé fills them from the links in it.
 - **Scan my links** reads those links on your computer and shows what your own work says about your skills:
   - **GitHub:** each repository's languages, the libraries in its dependency files (`package.json`, `requirements.txt`, `pyproject.toml`, `go.mod`, `Cargo.toml`, Gradle/Maven, `pubspec.yaml`, ...) and tell-tale files (Dockerfiles, CI workflows, Terraform, Kubernetes). No login needed; GitHub allows 60 requests an hour without one, about 25 repositories. A token in **Settings → Reading your links** lifts that.
@@ -233,7 +239,7 @@ Lookout never sends email for you, and never uses data brokers or breach data.
 
 ## Memory and storage
 
-Everything lives in **`data/db.json`** and is saved every 15 seconds. Close Lookout or reboot, and it picks up exactly where it left off.
+Everything lives in **`data/lookout.db`**, a SQLite database (SQLite is built into Node.js, so nothing is installed for it). Every 15 seconds Lookout writes only what changed: a role, a board, a setting. Close Lookout or reboot, and it picks up exactly where it left off. A `db.json` from an earlier version is moved into the database on first start and kept beside it as `db.json.migrated`.
 
 | Remembered | Details |
 |---|---|
@@ -241,7 +247,9 @@ Everything lives in **`data/db.json`** and is saved every 15 seconds. Close Look
 | Hidden roles and blocked companies | hidden roles live in Pipeline → Hidden; blocked companies are in Settings |
 | Saved views | filters plus alert on/off |
 | Settings and profile | ntfy topic/server/token, quiet hours, name, skills, pitch, link |
-| Jobs | roles from the last 60 days, with all their sources. Internships, apprenticeships and entry-level roles are all kept (up to 15,000); everything else keeps its newest 12,000 |
+| Jobs | computer-science roles from the last 60 days, with all their sources: up to 20,000 internships, apprenticeships and entry-level roles, and the newest 20,000 others |
+| Closed roles | roles their employer took down, for 60 days, so copies on other sites stay out |
+| Niche diary | how many companies hired for each kind of work, per day, for 200 days (for rising niches) |
 | Scanner state | discovered boards and when each was last polled, auto-discovered lists, feed cursors (e.g. the last HN comment seen), funding rounds, contact lookups |
 | Feed versions | each feed's ETag / Last-Modified, so a restart asks "anything new?" instead of re-downloading everything |
 | Pruned roles | a list of roles already dropped, so the same old postings aren't re-added on every poll |
@@ -250,8 +258,36 @@ On a restart, typically only 3 of 18 feeds send any data (the live APIs that don
 
 The Windows app also remembers UI preferences, such as your current filters and the open page, in `Lookout.exe.WebView2/`.
 
-- **Back up** your search by copying `data/db.json`.
+- **Back up** everything with **Settings → Your data → Back up everything**: one `.db` file with roles, pipeline, notes, profiles, boards and settings. To move to another computer, put it in that copy's `data` folder as `lookout.db` before opening Lookout.
+- **Share** only your boards and lists with **Settings → Sources → Share your list**: a small JSON file with no roles, notes or settings in it, however many boards it holds (lists of hundreds of thousands of boards import fine).
 - **Start fresh** by stopping Lookout and deleting the `data` folder.
+
+## Listings that may not be real
+
+Job sites are full of listings that are not open roles: postings left up after the job was filled, "talent community" pages, general applications, roles taken down and put up again to look fresh. Lookout keeps them out in two ways.
+
+- **Taken down by the employer.** Lookout reads each company's own careers board every 1 to 60 minutes, and Greenhouse, Lever, Ashby, Workable, Recruitee and YC hand over every open role at once. A role missing from its board on two reads at least 20 minutes apart has been taken down: it leaves Lookout, and copies of it on community lists and job boards are kept out for 60 days. (Most of a board vanishing at once looks more like an outage, so that waits three hours.) Roles in your pipeline stay, marked **Closed**. A community list marking a role closed counts too, when Lookout has no board of its own to check.
+- **Labelled and hidden.** A posting that reads like a talent pool or a general application, or one the employer took down and then posted again, is marked **May not be a real opening** with the reason, kept out of alerts, and hidden from the list. The end of the list says how many were hidden; **Show them** (or Filters → More → *Show listings that may not be a real opening*) brings them back. Being open for weeks, or the same title in several offices, is normal and never earns the label on its own.
+
+Nobody outside a company can know for sure that a listing is not real, so nothing is deleted on a guess: every label says why.
+
+## Computer science first
+
+Lookout is for people in computing. It keeps a role when its specialty is a computing one, its title names computing work, or the posting asks for several technical skills (languages, frameworks, data and infrastructure tools) and its title is not plainly another profession. The last rule is what keeps it current: a niche that does not exist yet will still ask for Python, C++, CUDA or Kubernetes. Roles in other fields are skipped as they are read, which also keeps the database small.
+
+To keep every field (nursing, sales, civil engineering and the rest), choose **Settings → Sources → Roles to keep → Every field**; boards are then read again in full.
+
+**Niches** on the Signals page shows what computing teams are hiring for, learned from role titles rather than a fixed list: the most hired-for niches in the last 14 days, and, once Lookout has watched for four weeks, the ones rising fastest. Click one to see its roles.
+
+## Updates
+
+Once a day Lookout reads three public files of the project on GitHub. Nothing about you is sent.
+
+- **The board list** (`starter/sources.json`). A GitHub Action rebuilds it every month from [Common Crawl](https://commoncrawl.org): every company board on Greenhouse, Lever, Ashby, Workable, SmartRecruiters and Recruitee that the crawl has seen is checked against its public job API and kept when it has computer-science roles open. New boards are added to your Lookout when *Find new boards and lists on my own* is on. Run `node starter/crawl-boards.mjs` to rebuild it yourself.
+- **The vocabulary** (`starter/vocab.json`): words that mark new kinds of computing work, so they are recognised without a new version of the app.
+- **The latest release.** When a newer version is out, the sidebar and **Settings → Updates** say so, with the link. Download it, close Lookout, and unzip it over the old folder; your `data` folder stays.
+
+Each release comes with `SHA256SUMS.txt`, the checksum of every download, so you can check what you got is exactly what was built.
 
 ## Deduplication and freshness
 

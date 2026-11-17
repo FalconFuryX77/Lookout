@@ -1,6 +1,6 @@
 // Applicant-tracking-system detection and polling. Polling a company's own ATS is the
 // fastest trustworthy signal: the posting appears there before any aggregator copies it.
-import { getText, getJson, htmlToText, toIso, precisionOf, decodeEntities } from './util.mjs';
+import { getText, getJson, htmlToText, toIso, precisionOf, decodeEntities, pool } from './util.mjs';
 
 const DETECT = [
   ['greenhouse', /(?:boards|job-boards)(?:-api)?\.greenhouse\.io\/(?:embed\/job_board(?:\/js)?\?for=|v1\/boards\/)?([A-Za-z0-9_-]+)/i],
@@ -43,8 +43,20 @@ export async function detectAts(website, nameHint = '') {
 export async function fetchBoard({ provider, board, company, known, state }) {
   const b = encodeURIComponent(board);
   if (provider === 'greenhouse') {
-    const { data } = await getJson(`https://boards-api.greenhouse.io/v1/boards/${b}/jobs?content=true`, { timeout: 15000 });
-    return (data.jobs || []).map(j => ({
+    // A big company's whole board with every description runs to megabytes (Stripe's: 2 MB); the list alone is
+    // tens of kilobytes. After the first full read, read the list and fetch descriptions only for roles not
+    // seen before. Many new roles at once (a big hiring push) make one full read the cheaper choice again.
+    const light = !!(state?.full && known);
+    const { data } = await getJson(`https://boards-api.greenhouse.io/v1/boards/${b}/jobs${light ? '' : '?content=true'}`, { timeout: 15000 });
+    const jobs = data.jobs || [];
+    if (light) {
+      const fresh = jobs.filter(j => j.absolute_url && !known(j.absolute_url));
+      if (fresh.length > 40) { state.full = false; return fetchBoard({ provider, board, company, known, state }); }
+      const detail = new Map();
+      await pool(fresh, 4, async j => { try { detail.set(j.id, (await getJson(`https://boards-api.greenhouse.io/v1/boards/${b}/jobs/${j.id}`, { timeout: 15000, conditional: false })).data); } catch { } });
+      for (const j of jobs) { const d = detail.get(j.id); if (d) Object.assign(j, { content: d.content, first_published: d.first_published || j.first_published }); }
+    } else if (state) state.full = true;
+    return jobs.map(j => ({
       sourceJobId: `gh:${board}:${j.id}`, title: j.title, company: company || j.company_name || board,
       url: j.absolute_url, location: j.location?.name || '', description: htmlToText(j.content || ''),
       // Greenhouse only exposes updated_at; first_published exists on newer boards.
@@ -80,12 +92,13 @@ export async function fetchBoard({ provider, board, company, known, state }) {
   }
   if (provider === 'smartrecruiters') {
     const { data } = await getJson(`https://api.smartrecruiters.com/v1/companies/${b}/postings?limit=100`, { timeout: 15000 });
-    return (data.content || []).map(j => ({
+    const all = data.content || [];
+    return Object.assign(all.map(j => ({
       sourceJobId: `sr:${board}:${j.id}`, title: j.name, company: company || j.company?.name || board, url: `https://jobs.smartrecruiters.com/${board}/${j.id}`,
       location: [j.location?.city, j.location?.region, j.location?.country].filter(Boolean).join(', '), remote: j.location?.remote,
       typeHint: j.typeOfEmployment?.label || '', levelHint: j.experienceLevel?.label || j.experienceLevel?.id || '', description: `${j.department?.label || ''} ${j.function?.label || ''}`.trim(),
       postedAt: toIso(j.releasedDate), precision: 'minute',
-    }));
+    })), { complete: typeof data.totalFound === 'number' && data.totalFound <= all.length });
   }
   if (provider === 'recruitee') {
     const { data } = await getJson(`https://${b}.recruitee.com/api/offers/`, { timeout: 15000 });

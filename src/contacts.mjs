@@ -13,6 +13,9 @@ const SOCIAL = [
   ['x', /https?:\/\/(?:www\.)?(?:twitter|x)\.com\/(?!intent|share|home|search)[A-Za-z0-9_]{2,15}(?=["'/?#\s])/i],
   ['github', /https?:\/\/(?:www\.)?github\.com\/(?!features|about|pricing|login|sponsors|orgs\/|topics)[A-Za-z0-9-]{2,39}(?=["'/?#\s])/i],
   ['instagram', /https?:\/\/(?:www\.)?instagram\.com\/[A-Za-z0-9_.]{2,30}(?=["'/?#\s])/i],
+  // A link to the company's Wellfound (formerly AngelList) page on its own site or in a posting. Wellfound itself is
+  // never visited: its terms forbid automated access. The person opens the link in their own browser.
+  ['wellfound', /https?:\/\/(?:www\.)?(?:wellfound\.com|angel\.co)\/company\/[A-Za-z0-9_-]{2,80}(?=["'/?#\s])/i],
 ];
 const NOT_A_PERSON = /^(security|vulnerabilit|vuln|abuse|privacy|legal|press|media|pr|noreply|no-reply|donotreply|do-not-reply|dmca|gdpr|dpo|dataprotection|compliance|accessibility|investors?|ir|billing|invoices?|accounts?|payments?|ap|ar|webmaster|postmaster|hostmaster|unsubscribe|bounce|notifications?|alerts?|status|trust|safety|copyright|report|spam|fraud|disclosure|bugbounty|bug-bounty|psirt|cert|soc|incident)\b/;
 const ROLE_HINT = [[/^(jobs|careers|hiring|recruit|talent|hr|people|join)/, 'Hiring'], [/^(founders?|ceo|cto|hello|hi|hey)$/, 'Founders / general'], [/^(contact|info|team|support|help|sales|press|media|partners?)$/, 'General'], [/^(security|abuse)$/, 'Security']];
@@ -94,6 +97,8 @@ export async function discoverContacts(job, company = {}) {
       for (const [k, re] of SOCIAL) if (!socials[k]) { const m = html.match(re); if (m) socials[k] = m[0].replace(/["']$/, ''); }
     }
   }
+  if (socials.wellfound) socials.wellfound = socials.wellfound.replace(/^https?:\/\/(?:www\.)?angel\.co\//i, 'https://wellfound.com/').replace(/^http:/, 'https:');
+  if (!socials.wellfound) { const w = [job.url, job.applyUrl, ...(job.urls || [])].find(u => /\/\/(?:www\.)?wellfound\.com\/(?:company|jobs)\//i.test(u || '')); const slug = w?.match(/wellfound\.com\/company\/([A-Za-z0-9_-]+)/i)?.[1]; if (slug) socials.wellfound = `https://wellfound.com/company/${slug}`; }
   const gh = await githubOrg(socials.github);
   if (gh) add(gh.email, 'GitHub organization profile', gh.url);
 

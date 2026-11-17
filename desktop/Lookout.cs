@@ -140,7 +140,7 @@ namespace Lookout
 
         private void StartScanner()
         {
-            string node = FindNode();
+            string node = FindNode(_appDir);
             try { var log = new FileInfo(Path.Combine(_appDir, "lookout-desktop.log")); if (log.Exists && log.Length > 1000000) log.Delete(); } catch { }
             var start = new ProcessStartInfo
             {
@@ -160,8 +160,12 @@ namespace Lookout
             _server.BeginErrorReadLine();
         }
 
-        private static string FindNode()
+        private static string FindNode(string appDir)
         {
+            // The copy of Node.js that ships with Lookout comes first: the app then needs nothing installed, and a
+            // future Node.js that changes something cannot break it.
+            string bundled = Path.Combine(appDir, "runtime", "node.exe");
+            if (File.Exists(bundled)) return bundled;
             string[] candidates = {
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "nodejs", "node.exe"),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "nodejs", "node.exe")
@@ -172,7 +176,7 @@ namespace Lookout
                 try { string candidate = Path.Combine(folder.Trim(), "node.exe"); if (File.Exists(candidate)) return candidate; }
                 catch { }
             }
-            throw new FileNotFoundException("Node.js 20 or newer was not found. Install Node.js and reopen Lookout.");
+            throw new FileNotFoundException("Node.js was not found. The runtime folder that comes with Lookout is missing; download Lookout again, or install Node.js 22 or newer and reopen it.");
         }
 
         private void OnFormClosing(object sender, FormClosingEventArgs e)

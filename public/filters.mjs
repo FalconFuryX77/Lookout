@@ -32,6 +32,7 @@ export const EMPTY_FILTERS = {
   payMin: null, payUnknown: true, terms: [],
   fundedOnly: false, fundStages: [], hasContact: false, hideTracked: false,
   sources: [], multiSource: false, skills: [], skillsAll: false, excludeCompanies: [], hideAgencies: false,
+  showDoubtful: false, // listings that may not be a real opening (talent pools, re-posted, long-open) are hidden unless asked for
   // the "exclude" side of every option list (Field keeps its older name, excludeFields)
   notSpecialties: [], notStages: [], notVisa: [], notWorkModes: [], notCountries: [], notDegrees: [], notTerms: [], notFundStages: [], notSkills: [], notSources: [],
 };
@@ -144,6 +145,8 @@ function checks(f, ctx) {
   if (f.fundStages.length) add('fundStages', j => f.fundStages.includes(fundStageOf(j)));
   if (f.hasContact) add('hasContact', j => !!(j.emails?.length || j.contactCount));
   if (f.hideAgencies) add('hideAgencies', j => !j.middleman && !AGENCY.test(j.company));
+  if (!f.showDoubtful) add('doubt', j => !j.doubt);
+  add('_closed', j => !j.closedAt); // taken down by the employer: only your pipeline still shows it
   if (f.multiSource) add('sources', j => (j.sources?.length || 1) >= 2);
   if (f.sources.length) add('sources', j => j.sources.some(s => f.sources.includes(s.source)));
   if (f.excludeCompanies.length) { const ex = new Set(f.excludeCompanies.map(normCo)); add('excludeCompanies', j => !ex.has(normCo(j.company))); }
@@ -262,7 +265,9 @@ export function fit(job, profile = {}) {
   // A long skill list does not need every item ticked: the first six count in full, each one after
   // that counts three quarters. But 100 means you have everything it names, so each missing skill
   // takes at least three points off (up to fifteen).
-  const asked = tech.length <= 6 ? tech.length : 6 + (tech.length - 6) * 0.75;
+  // ...and a posting that names only one or two skills is scored as if it named three: having 2 of 2 says
+  // less than having 3 of 3, so it reads 67, not 100.
+  const asked = Math.max(3, tech.length <= 6 ? tech.length : 6 + (tech.length - 6) * 0.75);
   if (mine.size && tech.length) pct = Math.min(100 - Math.min(15, 3 * missing.length), Math.round(100 * Math.min(1, have.reduce((a, n) => a + weight(n), 0) / asked)));
   else if (mine.size && general.length) pct = Math.round(60 * Math.min(1, genHave.length / Math.min(general.length, 8)));
   const y = profile.yearsExp, need = job.yearsMin;

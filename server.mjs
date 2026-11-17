@@ -20,8 +20,14 @@ import { resumeText, parseResume } from './src/resume.mjs';
 import { matches, effectiveTime, fundStageOf, normCo, mentionsIn, fit, overReach } from './public/filters.mjs';
 import { enrich } from './src/enrich.mjs';
 import { normCompany } from './src/dedupe.mjs';
+import { assessListing } from './src/doubt.mjs';
+import { diffListing } from './src/listing.mjs';
+import { findNiches, recordNicheDays } from './src/niches.mjs';
+import { addComputingWords, isComputingRole } from './src/taxonomy.mjs';
+import { fetchBoardList, fetchVocab, latestRelease, newer, REPO } from './src/updates.mjs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { namedEmployer, sameRole, boardSlugs, linkRank, bestLink, isShortLink, followRedirects, REPOSTER } from './src/root.mjs';
-import { pool, domainOf, canonicalUrl, exportHttpValidators, importHttpValidators } from './src/util.mjs';
+import { pool, domainOf, canonicalUrl, exportHttpValidators, importHttpValidators, clearHttpValidators } from './src/util.mjs';
 import { scanLinks, sortLinks } from './src/scan.mjs';
 import { githubTarget as githubTargetOf } from './src/github.mjs';
 import { weighSkills } from './src/evidence.mjs';
@@ -34,8 +40,19 @@ const fullText = j => `${j.title} ${j.company} ${j.location || ''} ${j.specialty
 const fullMention = (j, t) => mentionsIn(fullText(j), t);
 const PORT = Number(process.env.PORT || 4173);
 const HOST = process.env.HOST || '127.0.0.1';
-const store = new Store(process.env.LOOKOUT_DATA || path.join(ROOT, 'data'));
+const DATA_DIR = process.env.LOOKOUT_DATA || path.join(ROOT, 'data');
+const APP_VERSION = (() => { try { return JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version; } catch { return '0'; } })();
+// Words that mark computing work beyond the built-in ones: the copy shipped with the app, and the newer one from
+// GitHub (data/vocab.json). Read before the roles are, so a new niche is recognised from the first moment.
+function loadVocab() {
+  const words = [];
+  for (const f of [path.join(ROOT, 'starter', 'vocab.json'), path.join(DATA_DIR, 'vocab.json')]) { try { const v = JSON.parse(readFileSync(f, 'utf8')); if (v?.lookout === 'vocab') words.push(...(v.computingTitleWords || [])); } catch { } }
+  addComputingWords([...new Set(words)]); return words.length;
+}
+loadVocab();
+const store = new Store(DATA_DIR);
 await store.load();
+store.prune(); // before the first page load: roles past their time, or outside the fields kept, never show
 const S = store.state;
 const catchUpUntil = store.repaired ? Date.now() + 30 * 60e3 : 0;
 store.state.settings.appUrl = `http://127.0.0.1:${PORT}`;
@@ -260,9 +277,12 @@ async function handleNew(newJobs, bootstrapping) {
   store.touch();
 }
 
-function ingestAll(sourceId, postings, backfill = false) {
-  const fresh = [];
+// Reading a big board for the first time means hundreds of postings to sort; every 40 the scanner lets the
+// window's requests through, so the app stays responsive while thousands of new boards are read.
+async function ingestAll(sourceId, postings, backfill = false) {
+  const fresh = []; let k = 0;
   for (const p of postings) {
+    if (++k % 40 === 0) await new Promise(r => setImmediate(r));
     if (!p.title || !p.url || !p.company) continue;
     const { job, isNew } = store.ingest({ ...p, source: sourceId, backfill: backfill && !p.postedAt });
     if (!job) continue; // too old or previously pruned
@@ -274,9 +294,91 @@ function ingestAll(sourceId, postings, backfill = false) {
       addBoard(h.provider, h.board, job.company, srcLabel(sourceId));
       const c = store.company(job.company); if (c && !c.ats) { c.ats = h; c.atsVia = 'harvest'; c.atsCheckedAt = new Date().toISOString(); }
     }
-    if (isNew) fresh.push(job);
+    if (isNew) { assess(job); fresh.push(job); }
   }
   return fresh;
+}
+
+// ---------------------------------------------------------------- listings that may not be real
+// Signs a listing may not be a real opening (src/doubt.mjs). Counts change as roles come and go, so every
+// role is looked at again every few minutes; new ones are looked at as they arrive, before any alert.
+function assess(job) {
+  const d = assessListing(job);
+  const before = JSON.stringify(job.doubt || null), after = JSON.stringify(d || null);
+  if (before === after) return false;
+  if (d) job.doubt = d; else delete job.doubt;
+  return true;
+}
+function assessAll() { let changed = 0; for (const j of S.jobs) if (assess(j)) changed++; if (changed) { store.touch(); log(`doubt: ${changed} role(s) relabelled`); } }
+assessAll(); setInterval(assessAll, 10 * 60e3); // before the first page load, so nothing doubtful slips into the list
+
+// ---------------------------------------------------------------- niches
+// A small diary of which kinds of computing work were hired for each day (src/niches.mjs), so rising niches can
+// be told apart from ones that were always there, long after the roles themselves are pruned.
+let nicheCache = null;
+function noteNiches() { S.nicheDays = recordNicheDays(S.jobs, S.nicheDays || {}); nicheCache = null; store.touch(); }
+setTimeout(noteNiches, 60e3); setInterval(noteNiches, 60 * 60e3);
+
+// ---------------------------------------------------------------- updates from GitHub (src/updates.mjs)
+// Once a day: new boards from the project's board list (when finding new boards is on), new vocabulary, and
+// whether a newer version of the app has been released. Only the project's public files are read.
+let updating = false;
+async function checkUpdates(byHand = false) {
+  if (updating) return; updating = true;
+  const st = S.updates ||= {}; st.checkedAt = new Date().toISOString(); st.error = '';
+  try {
+    if (S.settings.autoUpdateList !== false && S.settings.discover !== false) {
+      try {
+        const list = await fetchBoardList();
+        if (list && list.exported !== st.listExported) { const r = importSources(list, 'starter list'); st.listExported = list.exported; st.listAdded = r.added; st.listAt = st.checkedAt; if (r.added) log(`updates: ${r.added} new boards from the board list on GitHub`); }
+      } catch (e) { if (!e.notModified) st.error = `Board list: ${e.message}`; }
+      try {
+        const v = await fetchVocab();
+        if (v) { writeFileSync(path.join(DATA_DIR, 'vocab.json'), JSON.stringify(v)); loadVocab(); st.vocabVersion = v.version; for (const j of S.jobs) j.cs = isComputingRole(j); nicheCache = null; }
+      } catch (e) { if (!e.notModified) st.error = st.error || `Vocabulary: ${e.message}`; }
+    }
+    try { const r = await latestRelease(); st.latest = r?.version || st.latest; st.release = r && newer(r.version, APP_VERSION) ? r : null; }
+    catch (e) { if (byHand) st.error = st.error || `Checking for a new version: ${e.message}`; }
+  } finally { updating = false; store.touch(); broadcast('status', { id: 'updates' }); }
+}
+function publicUpdates() { const u = S.updates || {}; return { version: APP_VERSION, latest: u.latest || null, release: u.release ? { version: u.release.version, name: u.release.name, url: u.release.url, notes: u.release.notes, publishedAt: u.release.publishedAt } : null, checkedAt: u.checkedAt || null, listAt: u.listAt || null, listAdded: u.listAdded || 0, vocabVersion: u.vocabVersion || null, error: u.error || '', auto: S.settings.autoUpdateList !== false, repo: REPO }; }
+setTimeout(checkUpdates, 90e3); setInterval(checkUpdates, 24 * 36e5);
+// The board list that comes with this version is added on its own (when finding new boards is on), once per list,
+// so an update brings its new boards without a click. A board you removed by hand only comes back with a newer list.
+async function addShippedList() {
+  if (S.settings.discover === false || S.settings.autoUpdateList === false) return;
+  try {
+    const f = JSON.parse(await fs.readFile(STARTER_FILE, 'utf8')); const st = S.updates ||= {};
+    if (!f.exported || st.shippedList === f.exported) return;
+    const r = importSources(f, 'starter list'); st.shippedList = f.exported; store.touch();
+    if (r.added) log(`starter: ${r.added} new boards from the list that came with this version`);
+  } catch (e) { log('starter: could not read the board list that came with this version:', e.message); }
+}
+setTimeout(addShippedList, 5e3);
+function niches() { if (!nicheCache || Date.now() - nicheCache.at > 10 * 60e3) nicheCache = { at: Date.now(), data: findNiches(S.jobs, S.nicheDays || {}) }; return nicheCache.data; }
+
+// ---------------------------------------------------------------- roles their employer took down
+// Boards that hand over every open role at once: a role missing from one of them has been taken down.
+// (Workday and Oracle are read a page at a time, so a missing role there says nothing.)
+const FULL_LIST = new Set(['greenhouse', 'lever', 'ashby', 'workable', 'recruitee', 'yc']);
+function noteListing(b, posts, out) {
+  const urls = posts ? new Set(posts.map(p => p.url && canonicalUrl(p.url)).filter(Boolean)) : null;
+  const { present, close } = diffListing(b, urls);
+  for (const u of present) { // a role in someone's pipeline that was marked closed is listed again
+    const id = store.dedupe.byUrl.get(u); const j = id && store.byId.get(id);
+    if (j?.closedAt && store.reopen(j)) out.updated.push(j);
+  }
+  for (const u of close) {
+    const id = store.dedupe.byUrl.get(u); const j = id && store.byId.get(id); if (!j) continue;
+    const r = store.closeJob(j, 'employer');
+    if (r === 'removed') out.removed.push(j.id); else if (r === 'marked') out.updated.push(j);
+  }
+}
+function announceClosed({ removed, updated }, label, by = 'employer') {
+  if (!removed.length && !updated.length) return;
+  broadcast('jobs', { added: [], removed, updated: updated.map(slim) });
+  log(`${label}: ${removed.length} role(s) ${by === 'list' ? 'marked closed by the list' : 'taken down by their employer'} removed${updated.length ? `, ${updated.length} in a pipeline marked closed or reopened` : ''}`);
+  S.closedCount = (S.closedCount || 0) + removed.length;
 }
 
 // ---------------------------------------------------------------- scheduler
@@ -288,9 +390,19 @@ async function runSource(src) {
   const started = Date.now(); const bootstrapping = !st.runs;
   try {
     let postings;
-    try { postings = await src.run({ cursor: st.cursor ||= {}, settings: S.settings, known: u => { const c = canonicalUrl(u); return store.dedupe.byUrl.has(c) || store.gone.has(c); } }); }
+    try { postings = await src.run({ cursor: st.cursor ||= {}, settings: S.settings, known: u => { const c = canonicalUrl(u); return store.dedupe.byUrl.has(c) || store.gone.has(c) || store.offScope.has(c); } }); }
     catch (e) { if (!e.notModified) throw e; postings = []; } // feed unchanged since last check
-    const fresh = await directLinks(await resolveRoots(ingestAll(src.id, postings, bootstrapping)));
+    const fresh = await directLinks(await resolveRoots(await ingestAll(src.id, postings, bootstrapping)));
+    // A list marking a role closed is believed only when Lookout has no employer board of its own to check.
+    if (postings.closed?.length) {
+      const out = { removed: [], updated: [] };
+      for (const u of postings.closed) {
+        const id = store.dedupe.byUrl.get(canonicalUrl(u)); const j = id && store.byId.get(id);
+        if (!j || j.sources.some(s => s.source === 'ats')) continue;
+        const r = store.closeJob(j, 'list'); if (r === 'removed') out.removed.push(j.id); else if (r === 'marked') out.updated.push(j);
+      }
+      announceClosed(out, src.id, 'list');
+    }
     Object.assign(st, { ok: true, at: new Date().toISOString(), ms: Date.now() - started, fetched: postings.length, added: fresh.length, error: '' });
     if (postings.length) { st.dataRuns = (st.dataRuns || 0) + 1; st.seen = (st.seen || 0) + postings.length; st.unique = (st.unique || 0) + fresh.length; }
     if (src.dynamic) { const d = S.dynamicSources.find(x => x.id === src.id); if (d && !d.imported && st.dataRuns >= 2 && !st.unique) { d.disabled = true; (S.rejectedRepos ||= []).push(d.repo.toLowerCase()); S.discoveryLog.unshift({ at: new Date().toISOString(), kind: 'retired', text: d.name, via: 'no unique jobs' }); log(`retired ${d.name}: everything it lists is already covered`); } }
@@ -349,33 +461,36 @@ function boards() { return Object.values(S.boards); }
 async function runBoards() {
   if (running.has('ats')) return; running.add('ats');
   const st = S.sourceStatus['ats'] ||= { cursor: {}, runs: 0 };
-  const started = Date.now();
+  const started = Date.now(); let backlogged = false;
   try {
     syncBoards();
     const now = Date.now();
     // Most overdue relative to its own interval first, so slow tiers aren't starved by fast ones.
     const due = boards().map(b => { const iv = paced(boardInterval(b, now)); return { b, ratio: (now - Date.parse(b.lastPolled || 0)) / iv }; }).filter(x => x.ratio >= 1)
-      .sort((x, y) => y.ratio - x.ratio).slice(0, 50).map(x => x.b);
-    let fetched = 0, added = 0, errors = 0;
-    await pool(due, 10, async b => {
+      .sort((x, y) => y.ratio - x.ratio); const batch = Math.max(50, Math.min(240, Math.ceil(boards().length / 40)));
+    backlogged = due.length > batch; due.splice(batch); for (let i = 0; i < due.length; i++) due[i] = due[i].b;
+    let fetched = 0, added = 0, errors = 0; const closed = { removed: [], updated: [] };
+    await pool(due, 16, async b => {
       b.lastPolled = new Date().toISOString();
       try {
-        const posts = await fetchBoard({ provider: b.provider, board: b.board, company: b.company !== b.board ? b.company : undefined, state: b.cursor ||= {}, known: u => { const c = canonicalUrl(u); return store.dedupe.byUrl.has(c) || store.gone.has(c); } }); fetched += posts.length;
+        const posts = await fetchBoard({ provider: b.provider, board: b.board, company: b.company !== b.board ? b.company : undefined, state: b.cursor ||= {}, known: u => { const c = canonicalUrl(u); return store.dedupe.byUrl.has(c) || store.gone.has(c) || store.offScope.has(c); } }); fetched += posts.length;
         const firstTime = !b.polledOnce; b.polledOnce = true; b.errors = 0; b.openRoles = posts.length;
-        const fresh = ingestAll('ats', posts, firstTime); added += fresh.length;
+        const fresh = await ingestAll('ats', posts, firstTime); added += fresh.length;
+        if (FULL_LIST.has(b.provider) || posts.complete) noteListing(b, posts, closed);
         if (fresh.length && !firstTime) { b.lastNewAt = new Date().toISOString(); b.newCount += fresh.length; }
         if (firstTime && posts.length) b.lastNewAt = posts.map(p => p.postedAt).filter(Boolean).sort().pop() || null;
         await handleNew(fresh, firstTime);
       } catch (e) {
-        if (e.notModified) { b.errors = 0; return; } // board unchanged since last poll: nothing to do
+        if (e.notModified) { b.errors = 0; if (b.missing && Object.keys(b.missing).length) noteListing(b, null, closed); return; } // board unchanged since last poll: only overdue removals to settle
         errors++; b.errors = (b.errors || 0) + 1; b.lastError = e.message;
         if (e.status === 404 && b.errors >= 3 && !b.watched) { delete S.boards[b.key]; const c = Object.values(S.companies).find(x => x.ats && bkey(x.ats.provider, x.ats.board) === b.key); if (c) c.ats = null; }
       }
     });
+    announceClosed(closed, 'ats');
     Object.assign(st, { ok: true, at: new Date().toISOString(), ms: Date.now() - started, fetched, added, boards: boards().length, polled: due.length, error: errors ? `${errors} board(s) failed this round` : '' });
     st.runs++; st.totalAdded = (st.totalAdded || 0) + added;
     if (added) log(`ats: +${added} new from ${due.length} boards`);
-  } finally { running.delete('ats'); nextAt.ats = Date.now() + 15e3; store.touch(); broadcast('status', { id: 'ats', ...publicStatus('ats') }); }
+  } finally { running.delete('ats'); nextAt.ats = Date.now() + (backlogged ? 2e3 : 15e3); store.touch(); broadcast('status', { id: 'ats', ...publicStatus('ats') }); }
 }
 
 // GitHub list discovery: find new curated job-list repos every 6 hours.
@@ -427,7 +542,7 @@ async function runFunding() {
           S.funding.unshift({ ...f, firstSeen: new Date().toISOString() }); added++;
           store.upsertCompany(f.company, { funding: [{ url: f.url, stage: f.stage, amount: f.amount, publishedAt: f.publishedAt, publisher: f.publisher }] });
         }
-      } catch (e) { errs.push(`${feed.name}: ${e.message}`); }
+      } catch (e) { if (!e.notModified) errs.push(`${feed.name}: ${e.message}`); } // "nothing new since last time" is not a failure
     });
     if (!st.cursor.ycAt || Date.now() - st.cursor.ycAt > 6 * 36e5) {
       const yc = await fetchRecentYc();
@@ -436,7 +551,8 @@ async function runFunding() {
       st.cursor.ycAt = Date.now(); st.ycCompanies = yc.length;
     }
     S.funding.sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || ''));
-    Object.assign(st, { ok: !errs.length || added > 0, at: new Date().toISOString(), added, error: errs.join(' · ').slice(0, 300) });
+    // A feed or two failing is normal (sites go down); only all of them failing is an error.
+    Object.assign(st, { ok: errs.length < FUNDING_FEEDS.length || added > 0, at: new Date().toISOString(), added, error: errs.join(' · ').slice(0, 300) });
     st.runs++;
     if (added) { log(`funding: +${added} rounds`); broadcast('funding', { added }); }
   } finally { running.delete('funding'); nextAt.funding = Date.now() + paced(5 * 60e3); store.touch(); }
@@ -539,7 +655,7 @@ function importSources(text, label) {
   const name = String(label || f.name || 'imported list').replace(/\s+/g, ' ').trim().slice(0, 60) || 'imported list';
   const via = name === 'starter list' ? 'starter list' : `imported: ${name}`;
   let added = 0, had = 0, skipped = 0, lists = 0;
-  for (const x of (f.boards || []).slice(0, 20000)) {
+  for (const x of (f.boards || []).slice(0, 500000)) {
     const provider = String(x?.platform || x?.provider || ''), board = String(x?.board || '').trim();
     if (!ATS_PROVIDERS.includes(provider) || !BOARD_OK.test(board)) { skipped++; continue; }
     const k = bkey(provider, board); if (S.boards[k]) { had++; continue; }
@@ -616,7 +732,7 @@ async function findRoot(j, { probe = true } = {}) {
           let posts; try { posts = await fetchBoard({ provider, board: slug, company: named.name }); } catch { continue; }
           const hit = posts.find(p => sameRole(j, p)); if (!hit) continue;
           const b2 = addBoard(provider, slug, named.name, 'named in a re-post'); if (b2) { b2.polledOnce = true; b2.lastPolled = new Date().toISOString(); b2.openRoles = posts.length; }
-          ingestAll('ats', posts, true);
+          await ingestAll('ats', posts, true);
           rootJob = store.byId.get(store.dedupe.byUrl.get(canonicalUrl(hit.url))) || null; employer = named.name;
           break search;
         }
@@ -695,7 +811,7 @@ setInterval(() => { for (const res of sse) res.write('event: ping\ndata: {}\n\n'
 
 // ---------------------------------------------------------------- HTTP API
 function json(res, code, v) { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(v)); }
-async function body(req) { let s = ''; for await (const c of req) { s += c; if (s.length > 2e6) throw new Error('Request too large'); } return s ? JSON.parse(s) : {}; }
+async function body(req, limit = 2e6) { let s = ''; for await (const c of req) { s += c; if (s.length > limit) throw new Error('Request too large'); } return s ? JSON.parse(s) : {}; }
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.webmanifest': 'application/manifest+json' };
 
 function sourcesMeta() {
@@ -749,9 +865,10 @@ async function route(req, res) {
   if (m === 'GET' && p.startsWith('/api/job/')) { const j = store.byId.get(decodeURIComponent(p.slice(9))); return j ? json(res, 200, view(j)) : json(res, 404, { error: 'Not found' }); }
   if (m === 'GET' && p === '/api/meta') {
     const { ntfyToken, extKey, deviceKey, githubToken, ...settings } = S.settings;
-    return json(res, 200, { sourceInfo: await sourcesInfo(), profiles: S.profiles.map(p => ({ id: p.id, label: p.label, active: p.id === S.activeProfile })), settings: { ...settings, profile: publicProfile(settings.profile), hasToken: !!ntfyToken, hasGithubToken: !!githubToken }, scanState: publicScanState(), learn: S.settings.learn !== false, filterSets: S.filterSets, tracking: S.tracking, blockedCompanies: S.blockedCompanies, sources: sourcesMeta(), watch: S.watch, alerts: S.alerts.slice(0, 50), funding: S.funding.slice(0, 300), stats: { jobs: S.jobs.length, companies: Object.keys(S.companies).length, boards: boards().length, funded: Object.values(S.companies).filter(c => fundingInfo(c)).length } });
+    return json(res, 200, { sourceInfo: await sourcesInfo(), profiles: S.profiles.map(p => ({ id: p.id, label: p.label, active: p.id === S.activeProfile })), settings: { ...settings, profile: publicProfile(settings.profile), hasToken: !!ntfyToken, hasGithubToken: !!githubToken }, scanState: publicScanState(), updates: publicUpdates(), learn: S.settings.learn !== false, filterSets: S.filterSets, tracking: S.tracking, blockedCompanies: S.blockedCompanies, sources: sourcesMeta(), watch: S.watch, alerts: S.alerts.slice(0, 50), funding: S.funding.slice(0, 300), stats: { jobs: S.jobs.length, companies: Object.keys(S.companies).length, boards: boards().length, funded: Object.values(S.companies).filter(c => fundingInfo(c)).length } });
   }
   if (m === 'GET' && p === '/api/signals') return json(res, 200, { companies: signals() });
+  if (m === 'GET' && p === '/api/niches') return json(res, 200, niches());
   if (m === 'GET' && p === '/api/discovery') return json(res, 200, discoveryOverview());
   if (m === 'GET' && p.startsWith('/api/contacts/')) {
     const j = store.byId.get(decodeURIComponent(p.slice(14))); if (!j) return json(res, 404, { error: 'Not found' });
@@ -788,6 +905,14 @@ async function route(req, res) {
     if ('ntfyToken' in b && b.ntfyToken !== '••••') s.ntfyToken = String(b.ntfyToken || '').trim();
     if ('desktopNotify' in b) s.desktopNotify = !!b.desktopNotify;
     if ('discover' in b) s.discover = !!b.discover;
+    if ('autoUpdateList' in b) s.autoUpdateList = !!b.autoUpdateList;
+    if (['computing', 'all'].includes(b.scope) && b.scope !== s.scope) { // which fields Lookout keeps
+      s.scope = b.scope; const dropped = store.applyScope();
+      if (b.scope === 'all') { S.httpValidators = {}; clearHttpValidators(); for (const bd of boards()) { delete bd.listed; delete bd.missing; } } // read everything again, in full
+      for (const k of Object.keys(nextAt)) if (k !== 'lists') nextAt[k] = 0;
+      if (dropped) broadcast('jobs', { added: [], removed: [], resync: true });
+      log(`scope: keeping ${b.scope === 'all' ? 'every field' : 'computer-science roles'}${dropped ? `; ${dropped} roles in other fields set aside` : ''}`);
+    }
     if (['auto', 'saver', 'slow'].includes(b.pace) && b.pace !== s.pace) { s.pace = b.pace; for (const k of Object.keys(nextAt)) if (k !== 'lists') nextAt[k] = Math.min(nextAt[k] || 0, Date.now() + paced(60e3)); }
     if (Array.isArray(b.linkedinSearches)) { s.linkedinSearches = b.linkedinSearches.map(x => ({ keywords: String(x?.keywords || '').trim().slice(0, 80), location: String(x?.location || '').trim().slice(0, 80), remote: !!x?.remote })).filter(x => x.keywords).slice(0, 12); nextAt.linkedin = 0; }
     if (b.profile) s.profile = cleanProfile(b.profile, s.profile);
@@ -935,12 +1060,25 @@ async function route(req, res) {
     for (const j of only) { const text = fullText(j); for (const t of terms) if (mentionsIn(text, t)) out[t].push(j.id); }
     return json(res, 200, { terms: out, ids: only.map(j => j.id) });
   }
+  // Everything in one file: a consistent copy of the database, to keep or to move to another computer.
+  if (m === 'GET' && p === '/api/backup') {
+    const file = path.join(os.tmpdir(), `lookout-backup-${process.pid}.db`);
+    try {
+      await store.backup(file);
+      const name = `lookout-backup-${new Date().toISOString().slice(0, 10)}${store.db ? '.db' : '.json'}`;
+      res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-disposition': `attachment; filename="${name}"`, 'content-length': (await fs.stat(file)).size, 'cache-control': 'no-store' });
+      const { createReadStream } = await import('node:fs');
+      return createReadStream(file).on('close', () => fs.rm(file, { force: true }).catch(() => { })).pipe(res);
+    } catch (e) { return json(res, 500, { error: e.message }); }
+  }
+  if (m === 'POST' && p === '/api/updates/check') { await checkUpdates(true); return json(res, 200, publicUpdates()); }
+  if (m === 'GET' && p === '/api/storage') return json(res, 200, { kind: store.db ? 'sqlite' : 'json', file: store.db ? path.join(store.dir, 'lookout.db') : path.join(store.dir, 'db.json'), roles: S.jobs.length, boards: boards().length });
   if (m === 'GET' && p === '/api/sources/export') {
     const f = exportSources({ scope: url.searchParams.get('scope') === 'useful' ? 'useful' : 'all', name: url.searchParams.get('name') || undefined });
     return json(res, 200, f);
   }
   if (m === 'POST' && p === '/api/sources/import') {
-    try { const b = await body(req); const r = importSources(b.text, b.name); await store.save(); return json(res, 200, { ...r, info: await sourcesInfo() }); }
+    try { const b = await body(req, 200e6); const r = importSources(b.text, b.name); await store.save(); return json(res, 200, { ...r, info: await sourcesInfo() }); }
     catch (e) { return json(res, 400, { error: e.message }); }
   }
   if (m === 'POST' && p === '/api/sources/starter') {
@@ -984,4 +1122,4 @@ async function route(req, res) {
 
 const server = http.createServer((req, res) => route(req, res).catch(e => { log('api error', e.message); if (!res.headersSent) json(res, 500, { error: e.message }); }));
 server.listen(PORT, HOST, () => log(`Lookout running at http://${HOST === '0.0.0.0' ? '127.0.0.1' : HOST}:${PORT}`));
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, async () => { store.touch(); await store.save().catch(() => { }); process.exit(0); });
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, async () => { await store.close().catch(() => { }); process.exit(0); });

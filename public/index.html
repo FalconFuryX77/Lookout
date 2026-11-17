@@ -68,6 +68,7 @@
     <section class="view hidden" id="v-signals">
       <header class="bar"><button class="icon-btn only-m" data-menu><i data-i="menu"></i></button><h1>Hiring signals</h1><span class="spacer"></span>
         <div class="seg" id="sigSeg"><button data-v="news" class="on">Just raised</button><button data-v="yc">YC</button><button data-v="open">Hiring now</button><button data-v="all">All</button></div></header>
+      <div class="niches" id="niches"></div>
       <p class="lede">Startups that just raised. Their careers pages are checked every 2 minutes.</p>
       <div class="table-wrap"><table class="tbl" id="sigTable"></table></div>
     </section>
@@ -186,6 +187,8 @@
         </div>
         <div class="card form" id="srcCard" data-nav="Sources">
           <div class="card-h"><h3>Sources</h3><span class="muted" id="srcSummary"></span></div>
+          <div class="pref"><span>Roles to keep</span><div class="seg" id="scopeSeg"><button type="button" data-v="computing">Computer science</button><button type="button" data-v="all">Every field</button></div></div>
+          <p class="fine" id="scopeNote" style="margin:-4px 0 18px"></p>
           <label class="check"><input type="checkbox" id="discoverToggle"><span>Find new boards and lists on my own</span></label>
           <p class="fine" style="margin:-6px 0 18px">Adds every careers board it spots inside a listing, YC companies, freshly funded startups and new community job lists on GitHub. Turn it off to keep exactly the boards and lists you chose.</p>
           <div class="pref"><span>How often to check</span><div class="seg" id="paceSeg"><button type="button" data-v="auto">Auto</button><button type="button" data-v="saver">Saver</button><button type="button" data-v="slow">Slow</button></div></div>
@@ -213,6 +216,19 @@
         </div>
         <div class="card" id="alertsCard" data-nav="Recent alerts"><div class="card-h"><h3>Recent alerts</h3><span class="muted" id="alertNote"></span></div><div id="alertLog"></div></div>
         <div class="card" id="blockedCard" data-nav="Blocked"><div class="card-h"><h3>Blocked companies</h3></div><div id="blockedList" class="tokens" style="margin:0"></div></div>
+        <div class="card form" id="updCard" data-nav="Updates">
+          <div class="card-h"><h3>Updates</h3><span class="muted" id="updVersion"></span></div>
+          <div id="updRelease"></div>
+          <label class="check"><input type="checkbox" id="updAuto"><span>Keep the board list and vocabulary up to date</span></label>
+          <p class="fine" style="margin:-6px 0 12px">Once a day Lookout reads the project's public board list and vocabulary on GitHub: new company boards (rebuilt every month from Common Crawl and community lists) and words for new kinds of computing work. Nothing about you is sent. Needs "Find new boards and lists on my own" in Sources.</p>
+          <div class="list-row"><div><b>Last checked</b><span id="updChecked"></span></div><button type="button" class="btn sm" id="updCheck">Check now</button></div>
+        </div>
+        <div class="card form" id="dataCard" data-nav="Your data">
+          <div class="card-h"><h3>Your data</h3><span class="muted" id="dataSummary"></span></div>
+          <p class="fine" style="margin-top:0">Everything Lookout knows lives in one file on this computer: <code id="dataFile">data/lookout.db</code>. Nothing is kept anywhere else.</p>
+          <div class="list-row"><div><b>Back up everything</b><span>Roles, pipeline, notes, profiles, boards and settings in one file. To move to another computer, put it in that copy's <code>data</code> folder as <code>lookout.db</code> before opening Lookout.</span></div><a class="btn sm" id="backupBtn" href="/api/backup" download>Download</a></div>
+          <div class="list-row"><div><b>Share only your boards and lists</b><span>For a friend: a small file with no roles, notes or settings in it. Settings → Sources → Share your list.</span></div><button type="button" class="btn sm" id="dataShare">Open</button></div>
+        </div>
         <div class="card" id="keysCard" data-nav="Keyboard"><div class="card-h"><h3>Keyboard</h3></div>
           <div class="keys"><span><kbd>Ctrl K</kbd>Command menu</span><span><kbd>/</kbd>Search</span><span><kbd>F</kbd>Filters</span><span><kbd>J</kbd><kbd>K</kbd>Next / previous</span><span><kbd>Enter</kbd>Apply</span><span><kbd>S</kbd>Save</span><span><kbd>E</kbd>Email</span><span><kbd>X</kbd>Hide</span><span><kbd>G</kbd> then <kbd>J</kbd><kbd>S</kbd><kbd>P</kbd><kbd>O</kbd><kbd>T</kbd>Jump to a screen</span><span><kbd>?</kbd>This list</span><span><kbd>Esc</kbd>Close</span></div></div>
 

@@ -38,7 +38,7 @@ function cities(loc = '') {
   return new Set(String(loc).toLowerCase().split(/;|\||\/| or /).map(x => x.split(',')[0].trim()).map(x => CITY_ALIAS[x] || x)
     .filter(x => x && x.length > 1 && !/\b(?:remote|anywhere|multiple|locations?|hybrid|united states|usa|india|canada|uk|europe|worldwide)\b/.test(x)));
 }
-function locationsConflict(a, b) {
+export function locationsConflict(a, b) {
   const ca = a.country, cb = b.country;
   const vague = c => !c || c === 'Unknown' || c.startsWith('Remote');
   if (!vague(ca) && !vague(cb) && ca !== cb) return true;

@@ -4,7 +4,16 @@ const UA = 'Lookout/2.0 (personal job-search tracker; links back to sources)';
 // url -> { etag, lastModified, body? }. Validators are saved to disk so a restart can ask
 // "anything new?" instead of re-downloading everything; bodies are kept only for small responses.
 const httpCache = new Map();
-const KEEP_BODY_BYTES = 256 * 1024;
+// Bodies are kept so an "unchanged" answer can still be read, but with thousands of boards they must not
+// pile up: small ones only, and the oldest are let go past a total budget.
+const KEEP_BODY_BYTES = 96 * 1024;
+const KEPT_BUDGET = 48 * 1024 * 1024;
+let keptBytes = 0;
+function remember(url, entry) {
+  const old = httpCache.get(url); if (old?.body) keptBytes -= old.body.length;
+  httpCache.delete(url); httpCache.set(url, entry); if (entry.body) keptBytes += entry.body.length;
+  if (keptBytes > KEPT_BUDGET) for (const v of httpCache.values()) { if (keptBytes <= KEPT_BUDGET * 0.8) break; if (v.body) { keptBytes -= v.body.length; v.body = null; } }
+}
 
 export class HttpError extends Error {
   constructor(status, url) { super(`HTTP ${status}`); this.status = status; this.url = url; }
@@ -29,7 +38,7 @@ export async function getText(url, { headers = {}, timeout = 20000, conditional 
   const body = await res.text();
   if (conditional) {
     const etag = res.headers.get('etag'); const lastModified = res.headers.get('last-modified');
-    if (etag || lastModified) httpCache.set(url, { etag, lastModified, body: body.length <= KEEP_BODY_BYTES ? body : null });
+    if (etag || lastModified) remember(url, { etag, lastModified, body: body.length <= KEEP_BODY_BYTES ? body : null });
   }
   return { body, changed: true, url: res.url };
 }
@@ -40,9 +49,11 @@ export async function getJson(url, opts = {}) {
 }
 
 /** Validators only (no bodies), for saving to disk. */
-export function exportHttpValidators(max = 6000) {
+export function exportHttpValidators(max = 40000) {
   return Object.fromEntries([...httpCache].slice(-max).map(([u, v]) => [u, { etag: v.etag || undefined, lastModified: v.lastModified || undefined }]));
 }
+/** Forget every "anything new since?" marker, so every feed is read again in full. */
+export function clearHttpValidators() { httpCache.clear(); keptBytes = 0; }
 export function importHttpValidators(obj = {}) {
   for (const [u, v] of Object.entries(obj || {})) if (!httpCache.has(u) && (v?.etag || v?.lastModified)) httpCache.set(u, { etag: v.etag, lastModified: v.lastModified, body: null });
 }

@@ -1,0 +1,41 @@
+# Rebuilds the board list (starter/sources.json) from Common Crawl once a month and commits it when it changed.
+# Every copy of Lookout picks up the new list on its own within a day (Settings → Updates).
+name: Board list
+
+on:
+  schedule:
+    - cron: '17 3 2 * *'   # the 2nd of every month, 03:17 UTC (Common Crawl publishes a new index most months)
+  workflow_dispatch:        # or by hand, from the Actions tab
+
+permissions:
+  contents: write
+
+concurrency:
+  group: board-list
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # The progress cache lets a long run that is cut off pick up where it stopped next time.
+      - uses: actions/cache@v4
+        with:
+          path: data/crawl-cache.json
+          key: crawl-cache-${{ github.run_id }}
+          restore-keys: crawl-cache-
+      - name: Find and check boards
+        run: node starter/crawl-boards.mjs --crawls 2 --concurrency 8
+      - name: Commit the new list
+        run: |
+          if git diff --quiet -- starter/sources.json; then echo "No change."; exit 0; fi
+          git config user.name "Lookout board list"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add starter/sources.json
+          git commit -m "Board list: monthly rebuild from Common Crawl"
+          git push

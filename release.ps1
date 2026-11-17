@@ -19,13 +19,16 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $dist = Join-Path $root 'dist'
 $stage = Join-Path $dist 'Lookout'
 
-if (-not $SkipBuild) { & (Join-Path $root 'build-desktop.ps1') }
+# Built outside the folder, so a running Lookout.exe (which Windows keeps locked) does not stop a release.
+$built = Join-Path ([IO.Path]::GetTempPath()) 'lookout-build\Lookout.exe'
+if (-not $SkipBuild) { $null = New-Item -ItemType Directory -Path (Split-Path $built) -Force; & (Join-Path $root 'build-desktop.ps1') -Out $built }
 
 # 1. Stage exactly what a user needs: the app, the scanner and the UI. Never anyone's data.
 if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
 $null = New-Item -ItemType Directory -Path (Join-Path $stage 'desktop') -Force
 $files = 'Lookout.exe', 'Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll', 'server.mjs', 'package.json', 'README.md', 'LICENSE', 'setup-desktop.ps1'
 foreach ($f in $files) { Copy-Item (Join-Path $root $f) $stage }
+if (-not $SkipBuild) { Copy-Item $built (Join-Path $stage 'Lookout.exe') -Force }
 Copy-Item (Join-Path $root 'src') $stage -Recurse
 # the extension uses the same skill code as the app: refresh its copy first
 & node (Join-Path $root 'extension\sync-shared.mjs')
@@ -33,7 +36,19 @@ Copy-Item (Join-Path $root 'public') $stage -Recurse
 Copy-Item (Join-Path $root 'extension') $stage -Recurse
 $null = New-Item -ItemType Directory -Path (Join-Path $stage 'starter') -Force
 Copy-Item (Join-Path $root 'starter\sources.json') (Join-Path $stage 'starter')
+Copy-Item (Join-Path $root 'starter\vocab.json') (Join-Path $stage 'starter')
 Copy-Item (Join-Path $root 'desktop\lookout.ico') (Join-Path $stage 'desktop')
+
+# The Node.js this was built and tested with goes in runtime\, so the download needs nothing installed.
+$nodeExe = (Get-Command node -ErrorAction Stop).Source
+$null = New-Item -ItemType Directory -Path (Join-Path $stage 'runtime') -Force
+Copy-Item $nodeExe (Join-Path $stage 'runtime\node.exe')
+# Node.js's licence (MIT, plus the licences of what it includes) travels with it, for the exact version bundled.
+$nodeVersion = (& $nodeExe --version).Trim()
+$nodeLicense = Join-Path (Split-Path $nodeExe) 'LICENSE'
+if (Test-Path $nodeLicense) { Copy-Item $nodeLicense (Join-Path $stage 'runtime\LICENSE.node.txt') }
+else { Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/nodejs/node/$nodeVersion/LICENSE" -OutFile (Join-Path $stage 'runtime\LICENSE.node.txt') }
+Write-Host "Bundled Node.js $nodeVersion from $nodeExe."
 
 # 2. Sign
 $cert = $null
@@ -65,3 +80,7 @@ $extZip = Join-Path $dist 'Lookout-extension.zip'
 Compress-Archive -Path (Join-Path $root 'extension\*') -DestinationPath $extZip -Force
 Write-Host "Built $extZip."
 Write-Host "Built $zip ($([math]::Round((Get-Item $zip).Length / 1KB)) KB)."
+# Checksums, attached to the release, so anyone can check a download is exactly what was built.
+$sums = Get-ChildItem $dist -File -Filter *.zip | Sort-Object Name | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name }
+Set-Content -Path (Join-Path $dist 'SHA256SUMS.txt') -Value $sums -Encoding ascii
+Write-Host "Wrote SHA256SUMS.txt."
