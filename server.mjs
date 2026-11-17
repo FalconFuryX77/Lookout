@@ -235,6 +235,16 @@ function view(job) {
   v.domain = c?.domain || (site ? domainOf(site) : '');
   return v;
 }
+// The window's list, one cached JSON row per role, rebuilt only when the role or its company changes, so the whole
+// list (tens of thousands of roles) can be handed over without redoing every row each time.
+const slimRows = new Map();
+function slimJson(j) {
+  const c = store.company(j.company);
+  const k = `${j.title}|${(j.sources || []).length}|${j.applyUrl}|${j.doubt?.level}|${j.closedAt}|${j.cs}|${(j.emails || []).length}|${(j.skills || []).length}|${j.postedAt}|${j.specialty}|${j.middleman ? 1 : 0}|${(c?.funding || []).length}|${c?.ycRecent}|${c?.contacts?.emails?.length}|${c?.teamSize}|${c?.website}|${c?.domain}|${(j.description || '').length}`;
+  const hit = slimRows.get(j.id); if (hit && hit.k === k) return hit.s;
+  const s = JSON.stringify(slim(j)); slimRows.set(j.id, { k, s }); return s;
+}
+setInterval(() => { if (slimRows.size > S.jobs.length * 1.3 + 500) { const ids = new Set(S.jobs.map(j => j.id)); for (const id of slimRows.keys()) if (!ids.has(id)) slimRows.delete(id); } }, 10 * 60e3);
 function slim(j) {
   const v = view(j);
   // The list needs far less than the detail view: no description, URLs, skill groups or full source records.
@@ -256,7 +266,7 @@ function alertEligible(job, bootstrapping) {
 }
 async function handleNew(newJobs, bootstrapping) {
   if (!newJobs.length) return;
-  broadcast('jobs', { added: newJobs.map(slim) });
+  broadcast('jobs', { added: newJobs.map(slim), quiet: !!bootstrapping }); // a board read for the first time: its roles are not news
   const items = []; const scopes = alertScopes();
   for (const j of newJobs) {
     if (!alertEligible(j, bootstrapping)) continue;
@@ -280,11 +290,12 @@ async function handleNew(newJobs, bootstrapping) {
 // Reading a big board for the first time means hundreds of postings to sort; every 40 the scanner lets the
 // window's requests through, so the app stays responsive while thousands of new boards are read.
 async function ingestAll(sourceId, postings, backfill = false) {
-  const fresh = []; let k = 0;
+  const fresh = [], setAside = []; let k = 0;
   for (const p of postings) {
     if (++k % 40 === 0) await new Promise(r => setImmediate(r));
     if (!p.title || !p.url || !p.company) continue;
-    const { job, isNew } = store.ingest({ ...p, source: sourceId, backfill: backfill && !p.postedAt });
+    const { job, isNew, removedId } = store.ingest({ ...p, source: sourceId, backfill: backfill && !p.postedAt });
+    if (removedId) setAside.push(removedId);
     if (!job) continue; // too old or previously pruned
     if (!isNew && !backfill) continue; // known posting; nothing new to learn from its links
     if (p.companyMeta?.yc) store.upsertCompany(job.company, { yc: p.companyMeta.yc, ycSlug: p.companyMeta.ycSlug, ycRecent: true });
@@ -296,6 +307,7 @@ async function ingestAll(sourceId, postings, backfill = false) {
     }
     if (isNew) { assess(job); fresh.push(job); }
   }
+  if (setAside.length) broadcast('jobs', { added: [], removed: setAside }); // their full posting showed another field
   return fresh;
 }
 
@@ -461,14 +473,17 @@ function boards() { return Object.values(S.boards); }
 async function runBoards() {
   if (running.has('ats')) return; running.add('ats');
   const st = S.sourceStatus['ats'] ||= { cursor: {}, runs: 0 };
-  const started = Date.now(); let backlogged = false;
+  const started = Date.now(); let backlogged = false; // set below when more boards are due than one round takes
   try {
     syncBoards();
     const now = Date.now();
     // Most overdue relative to its own interval first, so slow tiers aren't starved by fast ones.
     const due = boards().map(b => { const iv = paced(boardInterval(b, now)); return { b, ratio: (now - Date.parse(b.lastPolled || 0)) / iv }; }).filter(x => x.ratio >= 1)
       .sort((x, y) => y.ratio - x.ratio); const batch = Math.max(50, Math.min(240, Math.ceil(boards().length / 40)));
-    backlogged = due.length > batch; due.splice(batch); for (let i = 0; i < due.length; i++) due[i] = due[i].b;
+    // A board read for the first time brings all its roles at once; at most 12 of those per round, so thousands of
+    // newly added boards are taken in over an hour or two in the background instead of burying the computer.
+    { let first = 0; for (let i = 0; i < due.length; i++) if (!due[i].b.polledOnce && ++first > 12) { due.splice(i, 1); i--; backlogged = true; } }
+    backlogged = backlogged || due.length > batch; due.splice(batch); for (let i = 0; i < due.length; i++) due[i] = due[i].b;
     let fetched = 0, added = 0, errors = 0; const closed = { removed: [], updated: [] };
     await pool(due, 16, async b => {
       b.lastPolled = new Date().toISOString();
@@ -855,9 +870,9 @@ async function route(req, res) {
     res.write('retry: 3000\n\n'); sse.add(res); req.on('close', () => sse.delete(res)); return;
   }
   if (m === 'GET' && p === '/api/jobs') {
-    const body = JSON.stringify({ jobs: S.jobs.map(slim), now: Date.now() });
+    const body = `{"jobs":[${S.jobs.map(slimJson).join(',')}],"now":${Date.now()}}`;
     if (/\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
-      const gz = await new Promise((ok, bad) => zlib.gzip(body, { level: 6 }, (e, b) => e ? bad(e) : ok(b)));
+      const gz = await new Promise((ok, bad) => zlib.gzip(body, { level: 1 }, (e, b) => e ? bad(e) : ok(b)));
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'content-encoding': 'gzip', 'cache-control': 'no-store' }); return res.end(gz);
     }
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); return res.end(body);

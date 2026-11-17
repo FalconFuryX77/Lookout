@@ -4,7 +4,7 @@ import { train, learnedBoost, explain } from './rank.mjs';
 const linkKind = (u, co) => ['copy', 'site', 'near', 'direct'][Math.max(0, linkRank(u, co))];
 const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } };
 import { NOT_KEY, filterWords, mentionsInSummary } from './filters.mjs';
-import { matches, evaluate, freshness, score, skillMatch, fit, effectiveTime, normalizeFilters, normCo, EMPTY_FILTERS, FIELDS, STAGES, stagesOf, VISA, WORK_MODES, DEGREES, FUND_STAGES, AGE_MS } from './filters.mjs';
+import { matches, evaluate, freshness, score, skillMatch, fit, chance, effectiveTime, normalizeFilters, normCo, EMPTY_FILTERS, FIELDS, STAGES, stagesOf, VISA, WORK_MODES, DEGREES, FUND_STAGES, AGE_MS } from './filters.mjs';
 
 // ───────────────────────────────────────────── utilities
 const $ = s => document.querySelector(s);
@@ -164,12 +164,14 @@ function model() {
 }
 function filtered() {
   const out = [...ev().matched];
-  if (S.sort === 'best') {
-    // Ordered by the match score each row shows. Freshness, funding and what you tend to go for only break ties,
-    // and roles you have already applied to (or closed) go to the bottom.
+  if (S.sort === 'best' || S.sort === 'chance') {
+    // Best match: by the match score each row shows; among equal scores, the most recently posted first.
+    // Best chance: match and freshness weighed together (chance() in filters.mjs); what you tend to go for nudges it.
+    // Either way, roles you have already applied to (or closed) go to the bottom.
     const p = profile(); const now = Date.now(); const m = model(); const tr = S.meta?.tracking || {};
     const done = id => { const st = tr[id]?.status; return st && st !== 'saved' ? 1 : 0; };
-    const key = new Map(out.map(j => [j.id, [done(j.id), fit(j, p).pct, score(j, p, now) + learnedBoost(m, j, p) * 20]]));
+    const best = S.sort === 'best';
+    const key = new Map(out.map(j => [j.id, [done(j.id), best ? fit(j, p).pct : chance(j, p, now) + learnedBoost(m, j, p) * 4, effectiveTime(j)]]));
     out.sort((a, b) => { const x = key.get(a.id), y = key.get(b.id); return x[0] - y[0] || y[1] - x[1] || y[2] - x[2]; });
   }
   else out.sort((a, b) => effectiveTime(b) - effectiveTime(a));
@@ -296,7 +298,7 @@ function rowHtml(j, { arrive = false } = {}) {
       <div class="r-sub"><span class="r-co">${esc(j.company)}</span>${loc ? `<span class="r-loc">${esc(loc)}</span>` : ''}</div>
       ${pills ? `<div class="r-pills">${pills}</div>` : ''}
     </div>
-    <div class="r-right"><span class="t-time">${when(j)}</span><span class="r-meta">${tr?.status ? `<span class="r-flag st-${esc(tr.status)}">${esc(statusLabel(tr.status))}</span>` : ''}${ft ? `<span class="r-fit" title="${esc(`${ft.pct}% · ${ft.word}: you have ${ft.have.length} of the ${ft.n} skills it names`)}">${ring(ft.pct, 22, 2.5)}<b>${ft.pct}</b></span>` : ''}</span></div>
+    <div class="r-right"><span class="t-time">${when(j)}</span><span class="r-meta">${tr?.status ? `<span class="r-flag st-${esc(tr.status)}">${esc(statusLabel(tr.status))}</span>` : ''}${ft ? `<span class="r-fit" title="${esc(`${ft.pct}% · ${ft.word}: you have ${ft.have.length} of the ${ft.n} skills it names${S.sort === 'chance' ? `. Best chance ${chance(j, profile())}: match and how early you would be, together` : ''}`)}">${ring(ft.pct, 22, 2.5)}<b>${ft.pct}</b></span>` : ''}</span></div>
     <div class="r-acts"><button data-act="save" class="${saved ? 'on' : ''}" title="${saved ? 'Saved. Click to remove' : 'Save (S)'}" aria-label="Save">${ic('bookmark')}</button><button data-act="hide" title="Hide (X)" aria-label="Hide">${ic('eyeoff')}</button></div></div>`;
 }
 // Newest first is grouped by how fresh a role is, so "what came in while I was away" reads at a glance.
@@ -351,10 +353,24 @@ $('#newPill').onclick = () => {
 };
 
 // sort + search
-function renderSort() { $('#sortBtn').innerHTML = `${ic('sort')}<span>${S.sort === 'best' ? 'Best match' : 'Newest'}</span>`; $('#sortBtn').title = 'Switch between newest and best match'; }
-$('#sortBtn').onclick = () => {
-  S.sort = S.sort === 'new' ? 'best' : 'new'; ls.set('lk2.sort', S.sort); renderSort(); renderList();
-  if (S.sort === 'best' && !profile().skills?.length) toast('Add your skills to rank by fit', { action: ['Add skills', () => { location.hash = '#settings'; }] });
+const SORTS = [
+  ['new', 'Newest', 'Most recently posted first, grouped by hour, day and week.'],
+  ['best', 'Best match', 'Highest match score first; among equal scores, the most recently posted.'],
+  ['chance', 'Best chance', 'Match and freshness together: a good match posted an hour ago comes before a perfect one from last week.'],
+];
+function renderSort() { const s = SORTS.find(x => x[0] === S.sort) || SORTS[0]; $('#sortBtn').innerHTML = `${ic('sort')}<span>${s[1]}</span>`; $('#sortBtn').title = s[2]; }
+function setSort(v) {
+  S.sort = v; ls.set('lk2.sort', v); renderSort(); list.scrollTop = 0; renderList();
+  if (v !== 'new' && !profile().skills?.length) toast('Add your skills to rank by fit', { action: ['Add skills', () => { location.hash = '#settings'; }] });
+}
+$('#sortBtn').onclick = e => {
+  e.stopPropagation(); let menu = $('#sortMenu');
+  if (menu) { menu.remove(); return; }
+  menu = document.createElement('div'); menu.id = 'sortMenu'; menu.className = 'sort-menu'; menu.setAttribute('role', 'menu');
+  menu.innerHTML = SORTS.map(([v, l, d]) => `<button type="button" role="menuitemradio" aria-checked="${S.sort === v}" class="${S.sort === v ? 'on' : ''}" data-sort="${v}"><b>${l}</b><span>${d}</span></button>`).join('');
+  $('#sortBtn').after(menu);
+  $$('[data-sort]', menu).forEach(b => b.onclick = () => { menu.remove(); setSort(b.dataset.sort); });
+  setTimeout(() => document.addEventListener('click', function off(ev) { if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('click', off); } }), 0);
 };
 $('#q').value = S.filters.q || '';
 $('#q').addEventListener('input', debounce(e => setFilters({ q: e.target.value.trim() }), 140));
@@ -530,7 +546,7 @@ function renderDetail(j) {
       const note = n => (p.skillNotes || {})[skillInfo(n).canonical.toLowerCase()];
       return `<section class="sec"><h4>Skills${p.skills?.length && techN ? `<span class="match-pct">You have ${ft.have.length} of ${techN}${ft.strong.length ? ` · ${ft.strong.length} strong` : ''}</span>` : ''}</h4>${techN ? `<div class="chipset">${ft.have.map(n => ft.strong.includes(n) ? chip(n, 'hit strong', `Strong: ${note(n) || 'your own work uses it'}`) : chip(n, 'hit', note(n))).join('')}${ft.missing.map(n => chip(n, 'tech')).join('')}</div>` : ''}${ft.general.length ? `<div class="chipset gen">${ft.general.map(n => chip(n, ft.genHave.includes(n) ? 'gen hit' : 'gen')).join('')}</div>` : ''}</section>`;
     })() : ''}
-    <section class="sec"><h4>Contact<button class="icon-btn sm" id="cRe" title="Check again">${ic('refresh')}</button></h4><div id="contacts"><span class="spin"></span></div></section>
+    <section class="sec"><h4>Contact<button class="icon-btn sm" id="cRe" title="Check again">${ic('refresh')}</button></h4><div id="contacts"><span class="spin"></span></div><div id="wfBox">${wellfoundHtml(j, null)}</div></section>
     <section class="sec"><h4>Your progress<span class="muted small" id="stWhen">${tr.status && tr.at ? `${esc(statusLabel(tr.status))} ${esc(agoLong(Date.parse(tr.at)))}` : ''}</span></h4>
       <div class="stepper" id="stepper">${STATUSES.map(([v, l]) => `<button data-st="${v}" class="${v === 'rejected' ? 'end' : ''}"><i></i><span>${l}</span></button>`).join('')}</div>
       <textarea class="note" id="note" rows="2" placeholder="Notes: who you spoke to, what to follow up on">${esc(tr.note || '')}</textarea></section>
@@ -556,6 +572,7 @@ function renderDetail(j) {
   $('#dDraft').onclick = () => draft(j, contacts);
   $('#cRe').onclick = () => { $('#contacts').innerHTML = '<span class="spin"></span>'; loadContacts(j, true).then(c => contacts = c); };
   loadContacts(j).then(c => contacts = c);
+  wireWellfound(j, null); // usable before the contacts have loaded
   S.detailJob = j;
 }
 async function loadContacts(j, refresh = false) {
@@ -568,8 +585,9 @@ async function loadContacts(j, refresh = false) {
     if (c.founders?.length) out.push('<div class="sub-h">Founders</div>' + c.founders.map(f => `<div class="person">${logo(f.name, '')}<div><div>${esc(f.name)} <small>${esc(f.role || '')}</small></div><div>${f.linkedin ? `<a href="${esc(f.linkedin)}" target="_blank" rel="noreferrer">LinkedIn</a>` : ''}${f.x ? `<a href="${esc(f.x)}" target="_blank" rel="noreferrer">X</a>` : ''}</div></div></div>`).join(''));
     for (const g of c.guesses || []) out.push(`<div class="contact guess"><div class="c-main"><div class="em">${esc(g.email)}</div><div class="via">${esc(g.name)}${g.alt?.length ? ` · or ${g.alt.map(esc).join(', ')}` : ''}</div></div><span class="tag warn" title="A common address pattern, not verified">Guess</span>${copyBtn(g.email)}</div>`);
     const soc = Object.entries(c.socials || {}).filter(([k]) => k !== 'wellfound').map(([k, u]) => `<a class="link" href="${esc(u)}" target="_blank" rel="noreferrer">${esc({ linkedin: 'LinkedIn', x: 'X', github: 'GitHub', instagram: 'Instagram' }[k] || k)}</a>`).join(' · ');
-    $('#contacts').innerHTML = (out.join('') || '<p class="muted" style="margin:0">No published email found.</p>') + (soc ? `<p class="fine">${soc}</p>` : '') + wellfoundHtml(j, c);
-    $('#wfCopy')?.addEventListener('click', () => { navigator.clipboard?.writeText(wellfoundNote(j, c)); toast('Note copied. Paste it into Wellfound’s application note.', { ms: 4000 }); });
+    $('#contacts').innerHTML = (out.join('') || '<p class="muted" style="margin:0">No published email found.</p>') + (soc ? `<p class="fine">${soc}</p>` : '');
+    $('#wfBox').innerHTML = wellfoundHtml(j, c); // the company's own Wellfound page, once its site has been read
+    wireWellfound(j, c);
     hydrateIcons($('#contacts'));
     $$('[data-copy]', $('#contacts')).forEach(b => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copy); toast(`Copied ${b.dataset.copy}`, { ms: 2500 }); });
     return c;
@@ -577,6 +595,7 @@ async function loadContacts(j, refresh = false) {
 }
 // Wellfound: Lookout never visits it (its terms forbid automated access); it hands over the company's page
 // when a link to it was found, or a web search for it, and a short note to paste into the application.
+function wireWellfound(j, c) { $('#wfCopy')?.addEventListener('click', () => { navigator.clipboard?.writeText(wellfoundNote(j, c)); toast('Note copied. Paste it into Wellfound’s application note.', { ms: 4000 }); }); }
 function wellfoundHtml(j, c) {
   const page = c?.socials?.wellfound;
   const search = `https://duckduckgo.com/?q=${encodeURIComponent(`site:wellfound.com/company "${j.company}"`)}`;
@@ -907,7 +926,9 @@ function paletteCommands() {
     { g: 'Actions', l: 'Save current filters as view', i: 'plus', run: openSaveView },
     { g: 'Actions', l: 'Clear all filters', i: 'x', run: () => { S.activeView = null; setFilters({ ...EMPTY_FILTERS }); } },
     { g: 'Actions', l: 'Scan every source now', i: 'refresh', run: async () => { await api('/api/scan', { method: 'POST' }); toast('Polling every source now', { live: true }); } },
-    { g: 'Actions', l: 'Sort by ' + (S.sort === 'new' ? 'best match' : 'newest'), i: 'sliders', run: () => $('#sortBtn')?.click() },
+    { g: 'Actions', l: 'Sort by newest', i: 'sliders', run: () => setSort('new') },
+    { g: 'Actions', l: 'Sort by best match', i: 'sliders', run: () => setSort('best') },
+    { g: 'Actions', l: 'Sort by best chance (match and freshness)', i: 'sliders', run: () => setSort('chance') },
     { g: 'Look', l: 'Toggle light / dark', i: 'moon', run: toggleTheme },
     { g: 'Look', l: 'Keyboard shortcuts', i: 'layers', r: '?', run: () => openKeys() },
     { g: 'Look', l: document.documentElement.dataset.density === 'compact' ? 'Comfortable spacing' : 'Compact spacing', i: 'layers', run: () => setDensity(document.documentElement.dataset.density === 'compact' ? 'comfortable' : 'compact') },
@@ -1507,6 +1528,20 @@ setInterval(renderEngine, 5000);
 // The live feed can silently die (sleep, network change, a long time in the background). Detect it,
 // reconnect, and pull the full list again so nothing that arrived meanwhile is missed.
 let es = null, lastBeat = 0, lastSync = Date.now(), syncing = false, sawPing = false;
+const incoming = new Map(); let incomingTimer = 0;
+function flushIncoming() {
+  incomingTimer = 0; if (!incoming.size) return;
+  const batch = [...incoming.values()]; incoming.clear();
+  const ids = new Set(S.jobs.map(j => j.id));
+  const fresh = batch.filter(x => !ids.has(x.j.id)); if (!fresh.length) return;
+  S.jobs = [...fresh.map(x => x.j), ...S.jobs]; evCache = null;
+  const c = ctx(); const news = fresh.filter(x => !x.quiet && matches(x.j, S.filters, c)).map(x => x.j.id);
+  if (mentionCache.size) syncMentions(fresh.map(x => x.j.id)).then(ok => { if (ok) { renderList(); deferred(); } });
+  S.pending.push(...news);
+  if (S.view === 'jobs' && list.scrollTop < 20 && news.length && S.pending.length < 25 && !$('#sheet').classList.contains('open')) renderList(new Set(S.pending));
+  else updatePill();
+  $('#nJobs').textContent = fmt(S.jobs.length); renderQuick(); renderViews(); renderNav();
+}
 async function resync() {
   if (syncing) return; syncing = true;
   try {
@@ -1531,8 +1566,16 @@ function connect() {
   es.onerror = () => { S.connected = false; wasDown = true; renderEngine(); };
   es.addEventListener('ping', () => { lastBeat = Date.now(); sawPing = true; });
   es.addEventListener('jobs', e => {
-    const { added = [], removed = [], updated = [], resync: again } = JSON.parse(e.data);
+    const { added = [], removed = [], updated = [], resync: again, quiet } = JSON.parse(e.data);
     if (again) { resync(); return; }
+    // New roles arrive one board at a time, up to a hundred a minute while new boards are first read. They are
+    // gathered and shown together; roles already on a board Lookout reads for the first time are not news, so
+    // they join the list quietly, without the "new roles" pill, and the counts catch up every few seconds.
+    if (added.length && !removed.length && !updated.length) {
+      for (const j of added) incoming.set(j.id, { j, quiet: !!quiet && (incoming.get(j.id)?.quiet ?? true) });
+      if (!incomingTimer) incomingTimer = setTimeout(flushIncoming, [...incoming.values()].every(x => x.quiet) ? 5000 : 1200);
+      return;
+    }
     if (removed.length || updated.length) { // the employer took roles down (or put one back)
       const gone = new Set(removed); const upd = new Map(updated.map(j => [j.id, j]));
       S.jobs = S.jobs.filter(j => !gone.has(j.id)).map(j => upd.has(j.id) ? { ...j, ...upd.get(j.id) } : j);

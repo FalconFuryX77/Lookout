@@ -6,7 +6,7 @@ import { Deduper, mergeInto, normCompany, fingerprint, locationsConflict } from 
 import { bestLink, linkRank } from './root.mjs';
 import { enrich, inferCountry, inferType, relevel, extractSalary, extractEmails, cleanSalary, requirementLines } from './enrich.mjs';
 import { hash, domainOf, canonicalUrl } from './util.mjs';
-import { deepAttributes } from './taxonomy.mjs';
+import { deepAttributes, titleRulesOut } from './taxonomy.mjs';
 import { openDb } from './db.mjs';
 
 const MAX_JOBS = 20000;        // everything that is not early-career: newest first
@@ -55,14 +55,16 @@ export class Store {
     this.migrating = false;
     try {
       let saved;
-      if (this.db?.hasData()) saved = this.db.load();
+      if (this.db?.hasData()) { const r = this.db.load(); saved = r.state; this.loadedSets = r.sets; }
       else { saved = JSON.parse(await fs.readFile(this.file, 'utf8')); if (this.db) this.migrating = true; }
       this.state = { ...emptyState(), ...saved, settings: { ...emptyState().settings, ...(saved.settings || {}) } };
       // upgrade untouched v1 default sets to the new defaults
       const OLD = ['India internships', 'Fresh early-career roles (last hour)', 'Recently funded startups'];
       this.state.filterSets = this.state.filterSets.map(fs => OLD.includes(fs.name) ? (DEFAULT_FILTER_SETS.find(d => d.id === fs.id) || fs) : fs);
     } catch { /* first run */ }
-    this.gone = new Set(this.state.gone || []); delete this.state.gone;
+    this.gone = this.loadedSets?.gone || new Set(this.state.gone || []); delete this.state.gone;
+    if (this.loadedSets?.offScope) this.offScope = this.loadedSets.offScope; // roles in other fields stay skipped after a restart
+    this.loadedSets = null;
     for (const t of this.state.closedRoles || []) this.indexClosed(t); delete this.state.closedRoles;
     if (this.state.reenriched !== 4) { // recompute fields whose extractors improved
       for (const j of this.state.jobs) {
@@ -139,8 +141,8 @@ export class Store {
   async writeNow() {
     if (!this.dirty) return; this.dirty = false;
     if (this.db) {
-      this.state.gone = [...this.gone].slice(-80000); this.state.closedRoles = [...this.closed.values()];
-      try { this.db.save(this.state); } catch (e) { this.dirty = true; throw e; } finally { delete this.state.gone; delete this.state.closedRoles; }
+      this.state.closedRoles = [...this.closed.values()];
+      try { this.db.save(this.state, { gone: this.gone, offScope: this.offScope }); } catch (e) { this.dirty = true; throw e; } finally { delete this.state.closedRoles; }
       if (this.migrating) { this.migrating = false; try { await fs.rename(this.file, this.file + '.migrated'); console.log('store: moved db.json into lookout.db (the old file is kept as db.json.migrated)'); } catch { } }
       return;
     }
@@ -182,7 +184,6 @@ export class Store {
     // Fast path: same source re-reporting a job we already have (most of every poll).
     const quick = raw.url && this.dedupe.byUrl.get(canonicalUrl(raw.url));
     if (quick) { const j = this.byId.get(quick); if (j && j.sources.some(s => s.source === raw.source)) {
-      j.lastSeen = new Date().toISOString();
       const hint = raw.levelHint || raw.level; // sources that state seniority: pick it up for roles stored before we read it
       if (hint && !j.levelHint) { j.levelHint = Array.isArray(hint) ? hint.join(' ') : String(hint); relevel(j); this.touch(); }
       return { job: j, isNew: false };
@@ -193,6 +194,9 @@ export class Store {
     if (!keep && raw.postedAt && Date.now() - Date.parse(raw.postedAt) > MAX_AGE_DAYS * 864e5) return { job: null, isNew: false };
     if (!keep && raw.url && this.gone.has(canonicalUrl(raw.url))) return { job: null, isNew: false };
     if (!keep && raw.url && this.offScope.has(canonicalUrl(raw.url))) return { job: null, isNew: false, offScope: true };
+    // Plainly another profession by its title ("Sales Representative", "Staff Nurse"): skipped without reading the
+    // posting, which is most of the work of taking in a new board. Same answer the full check would give.
+    if (!keep && raw.url && this.state.settings.scope === 'computing' && titleRulesOut(raw.title) && !this.dedupe.byUrl.has(canonicalUrl(raw.url))) { this.offScope.add(canonicalUrl(raw.url)); return { job: null, isNew: false, offScope: true }; }
     const p = enrich(raw);
     p.precision = p.precision || 'unknown';
     // A role its employer took down: another site's copy of it stays out, and the employer posting it again is noted.
@@ -207,6 +211,12 @@ export class Store {
       const before = job.sources.length;
       this.dedupe.unindex(job); mergeInto(job, p); Object.assign(job, deepAttributes(job)); this.dedupe.index(job);
       if (job.sources.length !== before) this.touch();
+      // A list's title-only copy looked like computing work; the full posting says otherwise: set it aside now.
+      if (!keep && this.state.settings.scope === 'computing' && job.cs === false && !this.tracked(job.id)) {
+        const urls = [...(job.urls || [job.url]), p.url].filter(Boolean); this.removeJobs([job.id]);
+        for (const u of urls) { this.gone.delete(canonicalUrl(u)); this.offScope.add(canonicalUrl(u)); }
+        return { job: null, isNew: false, offScope: true, removedId: job.id };
+      }
       return { job, isNew: false };
     }
     // Outside the fields kept (another profession): remembered so later polls skip it without reading it again.

@@ -23,6 +23,7 @@ export function diffListing(b, urls, now = Date.now()) {
     const gone = [...before].filter(u => !present.has(u));
     const bulk = before.size >= 4 && gone.length > before.size / 2;
     for (const u of gone) missing[u] ||= [now, bulk ? 1 : 0];
+    if (gone.length || present.size !== before.size) b.lv = (b.lv || 0) + 1; // tells the store this board's listing changed
     b.listed = [...present];
   }
   const close = [];

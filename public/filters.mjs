@@ -250,7 +250,16 @@ export function score(job, profile = {}, now = Date.now()) {
  */
 const mineCache = new WeakMap();
 const canon = n => skillKey(skillInfo(n).canonical);
+// The list asks for every role's fit on every redraw; it only changes with the role or your skills.
+const fitMemo = new WeakMap();
 export function fit(job, profile = {}) {
+  const memo = fitMemo.get(job);
+  if (memo && memo.skills === profile.skills && memo.strength === profile.strength && memo.years === profile.yearsExp) return memo.r;
+  const r = fitNow(job, profile);
+  if (job && typeof job === 'object') fitMemo.set(job, { skills: profile.skills, strength: profile.strength, years: profile.yearsExp, r });
+  return r;
+}
+function fitNow(job, profile = {}) {
   const list = profile.skills || []; let mine = mineCache.get(list);
   if (!mine) { mine = new Set(list.map(canon)); mineCache.set(list, mine); }
   const tech = [], general = [];
@@ -273,6 +282,26 @@ export function fit(job, profile = {}) {
   const y = profile.yearsExp, need = job.yearsMin;
   const expGap = typeof y === 'number' && typeof need === 'number' ? Math.max(0, need - y) : 0;
   return { pct, have, missing, general, genHave, expGap, strong };
+}
+/**
+ * Best chance, 0-100: how good a shot applying now is, weighing how well you match against how early you would be.
+ *   - match counts for 55 points (your match score),
+ *   - being early for up to 35: all of it for a role posted this minute, half after a day and a half, a quarter
+ *     after three days (applications are read roughly in the order they arrive, and a popular role fills up
+ *     fast). Being early helps most when you are a good match, so a poor match gets less than half of it,
+
+ *   - and 10 for signs your application reaches a person: the employer's own listing rather than a re-post, a
+ *     contact to write to, a funded startup rather than a giant, and few other sites carrying it.
+ * Asking for more years than you have takes points off. Without skills on your profile, match counts as half.
+ */
+export function chance(job, profile = {}, now = Date.now()) {
+  const ft = fit(job, profile);
+  const match = profile.skills?.length ? ft.pct / 100 : 0.5;
+  const { t, kind } = freshness(job);
+  const early = kind === 'unknown' ? 0.05 : Math.pow(0.5, Math.max(0, now - t) / (36 * 36e5));
+  const reach = [!job.middleman, !!(job.emails?.length || job.contactCount), !!job.funded, (job.sources?.length || 1) <= 2].filter(Boolean).length / 4;
+  const s = 55 * match + 35 * early * (0.4 + 0.6 * match) + 10 * reach - Math.min(20, (ft.expGap || 0) * 7);
+  return Math.max(0, Math.min(100, Math.round(s)));
 }
 /** 0-100: how much of what the role asks for you have. */
 export function skillMatch(job, mine = []) { return fit(job, { skills: mine }).pct; }
